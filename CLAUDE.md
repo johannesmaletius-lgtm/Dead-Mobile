@@ -57,7 +57,8 @@ Alles wirkt nur mit `MODE === 'team'`. Kopfkommentar in `js/rules.js` = vollstä
   getragen = Aktion hämmern; Duo-Station nach Nähe (`actNow.st`). Am Boden kriecht `survMove` automatisch mit `CFG.crawl`.
 - Zuschauen: `viewer()` zeigt nach kurzem Abschied einen Teamkollegen (`S.spec`); Banner `#specBar`, Knopf „Ergebnis" → `teamGiveUp()`
   (offline: Ende; das Netz darf die Funktion überschreiben). Ende: `showTeamEnd()` mit `#teamRes`. Stellschrauben in `CFG` (`crawl` … `duoTime`).
-- Test: `NODE_PATH="$(npm root -g)" node tools/teamtest.js [bildordner]` (Szenarien PASS/FAIL, Screenshots).
+- Test: `NODE_PATH="$(npm root -g)" node tools/teamtest.js [bildordner]` (Szenarien PASS/FAIL, Screenshots);
+  mit `--map <id>` kartenunabhängig (alle Haken, Paletten-Stuns beim Tragen, Tore, Duo, Dauerlauf mit freier Killer-KI).
 
 ## Karten prüfen und importieren
 `node tools/mapcheck.js js/maps/schule.js` prüft Karten. `node tools/mapcheck.js antwort.md --id name --write`

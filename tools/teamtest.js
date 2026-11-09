@@ -1,10 +1,14 @@
 // Team-Regeln testen: spielt Szenarien auf 'schule-team' per Test-API (window.__ns) durch, meldet PASS/FAIL je Szenario.
-//   node tools/teamtest.js [bildordner]      (Playwright: NODE_PATH="$(npm root -g)" voranstellen)
+//   node tools/teamtest.js [bildordner]                 alle Szenarien auf schule-team
+//   node tools/teamtest.js [bildordner] --map <id>      kartenunabhängige Prüfung (alle Haken, Paletten, Tore, Duo, Dauerlauf)
+// Playwright: NODE_PATH="$(npm root -g)" voranstellen.
 // Fester Zufall, kein Ton, keine rAF-Schleife (wie tools/regress.js). Die anderen Survivors haben noch keine Bots:
 // der Test steuert sie direkt über die Schnittstellen aus js/rules.js (sv.ctl = (sv, dt) => healStep(…) usw.).
 const { chromium } = require('playwright');
 const fs = require('fs'), path = require('path');
-const dir = process.argv[2] || null;
+const args = process.argv.slice(2), mi = args.indexOf('--map');
+const MAP = mi >= 0 ? args[mi + 1] : 'schule-team';
+const dir = args.find((a, i) => !a.startsWith('--') && (mi < 0 || i !== mi + 1)) || null;
 if (dir) fs.mkdirSync(dir, { recursive: true });
 
 (async () => {
@@ -18,12 +22,12 @@ if (dir) fs.mkdirSync(dir, { recursive: true });
   });
   await p.goto('file://' + path.resolve(__dirname, '..', 'index.html') + '#test');
   // Hilfen im Browser
-  await p.evaluate(() => {
+  await p.evaluate(MAP => {
     const n = window.__ns;
     window.__t = {
       // Neues Team-Spiel; Killer wartet (ctl), bis ein Szenario ihn freilässt
       fresh(idle = true) {
-        n.startTeam('schule-team'); n.tick(.05);
+        n.startTeam(MAP); n.tick(.05);
         if (idle) this.idleK(); return n;
       },
       idleK(x = 42.5, y = 34.5) { n.K.ctl = () => { n.K.moving = false; }; n.ktp(x, y); },
@@ -41,7 +45,7 @@ if (dir) fs.mkdirSync(dir, { recursive: true });
       room(x, y) { return n.roomAt(x, y); },
       d(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); },
     };
-  });
+  }, MAP);
   const shot = async name => { if (dir) await p.screenshot({ path: path.join(dir, name + '.png') }); };
   const results = [];
   const scen = async (name, fn) => {
@@ -52,6 +56,80 @@ if (dir) fs.mkdirSync(dir, { recursive: true });
     return r;
   };
 
+  // ===== Kartenunabhängiger Teil (--map <id>): Regeln an allen Haken, Paletten, Toren der Karte =====
+  if (MAP !== 'schule-team') {
+    await scen(`[${MAP}] Treffer → Boden → Aufheben → Tragen → Haken`, () => {
+      const t = window.__t, n = t.fresh(true), S = n.S;
+      n.ktp(S.x, S.y); t.freeK(); S.hp = 1; n.hitSurvivor(S);
+      const tPick = t.until(() => S.carried, 8);
+      if (!S.carried) return { ok: false, info: 'nicht aufgehoben, K.mode=' + n.K.mode };
+      const k0 = { x: n.K.x, y: n.K.y }; n.tick(1); const v = t.d(n.K, k0);
+      const tHook = t.until(() => !!S.hung, 60);
+      return { ok: !!S.hung && v > 2 && v <= 3.65, info: `aufgehoben nach ${tPick}s, ${v.toFixed(2)} Kacheln/s, am Haken nach ${tHook}s` };
+    });
+    await shot(`m1-${MAP}-haken`);
+    await scen(`[${MAP}] alle Haken: erreichbar und rettbar`, () => {
+      const t = window.__t, n = t.fresh(), [, A, B] = n.SV, bad = [];
+      n.hooks.forEach((h, i) => {
+        const path = n.findPath(n.K.x | 0, n.K.y | 0, h.front.x | 0, h.front.y | 0);
+        n.hookSurv(A, h); A.hookN = 0;
+        B.x = h.front.x; B.y = h.front.y + .1; B.ctl = (sv, dt) => n.unhookStep(sv, A, dt);
+        n.tick(1.3); B.ctl = null;
+        if (!path || A.hung || A.hp !== 1 || circleHit(A.x, A.y, A.r - .02)) bad.push(i);
+        A.hp = 2;
+      });
+      return { ok: !bad.length, info: `${n.hooks.length} Haken, Probleme: ${bad.join(',') || 'keine'}` };
+    });
+    await scen(`[${MAP}] alle Paletten: Stun beim Tragen lässt fallen`, () => {
+      const t = window.__t, n = t.fresh(), S = n.S, A = n.SV[1], bad = [];
+      n.pallets.forEach((pal, i) => {
+        pal.state = 0; n.K.ctl = null; n.K.act = null;
+        n.ktp(pal.cx - pal.ax.x * .25, pal.cy - pal.ax.y * .25); A.hp = 2; n.pickUp(A);
+        S.x = pal.cx + pal.ax.x * .8; S.y = pal.cy + pal.ax.y * .8; S.act = null;
+        n.dropPallet(pal, S);
+        const ok = !A.carried && A.hp === 1 && n.K.act && n.K.act.kind === 'stun' && !circleHit(A.x, A.y, A.r - .02) && Math.hypot(A.x - n.K.x, A.y - n.K.y) < 1.2;
+        if (!ok) bad.push(i + (A.carried ? ':getragen' : ':Lage'));
+        n.K.act = null; n.K.mode = 'patrol'; S.act = null; pal.state = 0;
+      });
+      t.idleK();
+      return { ok: !bad.length, info: `${n.pallets.length} Paletten, Probleme: ${bad.join(',') || 'keine'}` };
+    });
+    await shot(`m2-${MAP}-palette`);
+    await scen(`[${MAP}] Duo-Aufgabe zu zweit`, () => {
+      const t = window.__t, n = t.fresh(), S = n.S, A = n.SV[1], duo = n.tasks.find(x => x.type === 'duo');
+      if (!duo) return { ok: false, info: 'keine Duo-Aufgabe' };
+      const s0 = duo.stations[0], s1 = duo.stations[1];
+      S.x = s0.ax; S.y = s0.ay; n.tick(.05); const a = n.act;
+      n.down(); n.up(); n.tick(2); const alone = duo.prog;
+      A.x = s1.ax; A.y = s1.ay; n.startWorkFor(A, duo, 1); A.ctl = (sv, dt) => n.workStep(sv, duo, dt, 1);
+      t.auto(4); const p = duo.prog;
+      return { ok: a && a.kind === 'task' && a.st === 0 && alone === 0 && p > .15, info: `allein ${alone}, zu zweit nach 4 s ${p.toFixed(2)}` };
+    });
+    await shot(`m3-${MAP}-duo`);
+    await scen(`[${MAP}] alle Tore: hindurchlaufen = entkommen`, () => {
+      const t = window.__t, n = t.fresh(), bad = [];
+      n.finish(); n.tick(3);
+      n.gates.forEach((g, i) => {
+        const sv = n.SV[1 + (i % 2)]; sv.out = null; sv.leave = null; sv.hp = 2;
+        const dir = g.north ? -1 : 1; sv.x = (g.x0 + g.x1 + 1) / 2; sv.y = g.y + .5 - dir * 1.6;
+        sv.ctl = (s, dt) => survMove(s, { x: 0, y: dir, mag: 1, walk: false }, dt);
+        t.until(() => sv.out === 'escaped', 3); sv.ctl = null;
+        if (sv.out !== 'escaped') bad.push(i);
+      });
+      return { ok: !bad.length, info: `${n.gates.length} Tore, Probleme: ${bad.join(',') || 'keine'}` };
+    });
+    await scen(`[${MAP}] Dauerlauf: freie Killer-KI gegen 3 stehende Survivors bis zum Ende`, () => {
+      const t = window.__t, n = t.fresh(false), log = []; let last = '', tt = 0;
+      while (n.state === 'play' && tt < 900) {
+        n.tick(.5); tt += .5;
+        const k = n.SV.map(v => v.out ? (v.out === 'dead' ? '†' : 'E') : v.hung ? 'H' : v.carried ? 'C' : v.hp).join('') + ' ' + n.K.mode;
+        if (k !== last) { log.push(Math.round(tt) + 's ' + k); last = k; }
+      }
+      return { ok: n.state === 'end' && n.SV.every(v => v.out === 'dead'), info: log.join(' · ') };
+    });
+    await shot(`m4-${MAP}-ende`);
+  }
+  if (MAP === 'schule-team') {
   // 1) Treffer → Boden → Aufheben → Tragen → Haken (echte Killer-KI)
   await scen('Treffer → Boden → Aufheben → Tragen → Haken', () => {
     const t = window.__t, n = t.fresh(true), S = n.S, [, A, B] = n.SV;
@@ -421,6 +499,8 @@ if (dir) fs.mkdirSync(dir, { recursive: true });
   });
   await shot('16-portraits-ende');
   await p.evaluate(() => { delete window.skinPortrait; for (const k in pimgs) delete pimgs[k]; });
+
+  }
 
   // Solo bleibt solo
   await scen('Solo: zweiter Treffer = Haken-Sequenz wie bisher', () => {
