@@ -16,7 +16,8 @@ async function run(file, dir) {
   });
   await p.goto('file://' + path.resolve(file) + '#test');
   const shots = [], out = [];
-  const snap = async n => { const buf = await p.screenshot(); shots.push([n, crypto.createHash('md5').update(buf).digest('hex')]); if (dir) fs.writeFileSync(path.join(dir, n + '.png'), buf); };
+  // kurz warten: der Endbildschirm fokussiert "Nochmal" nach 50 ms (sonst flackert der Fokusrahmen ins Bild)
+  const snap = async n => { await p.waitForTimeout(150); const buf = await p.screenshot(); shots.push([n, crypto.createHash('md5').update(buf).digest('hex')]); if (dir) fs.writeFileSync(path.join(dir, n + '.png'), buf); };
   const dump = () => p.evaluate(() => { const n = window.__ns, S = n.S, K = n.K, r = v => Math.round(v * 1000) / 1000;
     return JSON.stringify({ st: n.state, S: S && [r(S.x), r(S.y), S.hp, !!S.hidden], K: K && [r(K.x), r(K.y), K.mode, K.act && K.act.kind, r(K.aware)], t: n.tasks.map(t => r(t.prog)), p: n.pallets.map(p => p.state) }); });
   const stepIt = async (name, fn) => { await p.evaluate(fn); await snap(name); out.push(name + ' ' + await dump()); };
