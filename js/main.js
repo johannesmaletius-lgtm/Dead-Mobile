@@ -4,8 +4,8 @@
 function hitAct(x, y) { const b = actBtn(); return hyp(x - b.x, y - b.y) < b.r + 22; }
 function hitArrow(x, y) { for (const b of arrowPad()) if (hyp(x - b.x, y - b.y) < 36) return b.d; return -1; }
 const ptr = new Map();
-function actionDown() { if (state !== 'play') return; if (Q) { qteDown(); return; } doAction(); }
-function actionUp() { qteUp(); }
+function actionDown() { if (state !== 'play') return; actHeld = true; if (Q) { qteDown(); return; } doAction(); }
+function actionUp() { actHeld = false; qteUp(); }
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
   if (e.pointerType === 'touch') isTouch = true;
@@ -50,7 +50,7 @@ window.addEventListener('keyup', e => {
 });
 
 /* ================= Bildschirme ================= */
-function pauseGame() { if (state !== 'play') return; prevState = state; state = 'paused'; $('#pause').hidden = false; $('#pauseBtn').hidden = true; for (const k in keys) keys[k] = 0; joy.id = null; qteUp(); }
+function pauseGame() { if (state !== 'play') return; prevState = state; state = 'paused'; $('#pause').hidden = false; $('#pauseBtn').hidden = true; for (const k in keys) keys[k] = 0; joy.id = null; actHeld = false; qteUp(); }
 function resumeGame() { if (state !== 'paused') return; state = prevState; $('#pause').hidden = true; $('#pauseBtn').hidden = !!TUT; A.init(); }
 const SND_ON = '<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>';
 const SND_OFF = '<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>';
@@ -62,9 +62,9 @@ $('#play').addEventListener('click', playPressed);
 $('#tutBtn').addEventListener('click', startTutorial);
 $('#tutSkip').addEventListener('click', finishTutorial);
 $('#tutGo').addEventListener('click', finishTutorial);
-$('#again').addEventListener('click', startGame);
+$('#again').addEventListener('click', () => againPressed());
 $('#resume').addEventListener('click', resumeGame);
-$('#restart').addEventListener('click', startGame);
+$('#restart').addEventListener('click', () => againPressed());
 $('#pauseBtn').addEventListener('click', pauseGame);
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
 function showTitle() {
@@ -130,3 +130,5 @@ window.__ns = {
   down: actionDown, up: actionUp, arrow: qteArrow, keys, joy,
   tick(sec = 1) { const n = Math.round(sec * 60); for (let i = 0; i < n; i++) { step(1 / 60); updateMusic(); } render(); },
 };
+// Team-Regeln: zusätzliche Test-Funktionen (js/rules.js)
+Object.defineProperties(window.__ns, Object.getOwnPropertyDescriptors(TEAM_API));

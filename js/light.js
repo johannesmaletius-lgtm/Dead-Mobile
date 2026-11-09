@@ -18,18 +18,24 @@ function drawLight(z, ox, oy, visM) {
   const dim = state === 'title' || state === 'end' ? .85 : 1;
   for (let r = 1; r <= NR; r++) if ((visM & (1 << r)) && roomPath[r]) { lx.fillStyle = `rgba(0,0,0,${ROOMS[r].amb * dim})`; lx.fill(roomPath[r]); }
   lx.save(); lx.clip(maskPath(visM));
-  if (state === 'play' && !S.hidden) {
-    lg(lx, S.x, S.y - .5, 3.6, .85);
-    const a = S.dir, R = 7, g = lx.createRadialGradient(S.x, S.y - .4, .3, S.x, S.y - .4, R);
-    g.addColorStop(0, 'rgba(0,0,0,.78)'); g.addColorStop(1, 'rgba(0,0,0,0)'); lx.fillStyle = g;
-    lx.beginPath(); lx.moveTo(S.x, S.y - .4); lx.arc(S.x, S.y - .4, R, a - .48, a + .48); lx.closePath(); lx.fill();
+  const V = viewer();
+  if (state === 'play' && !V.hidden) {
+    lg(lx, V.x, V.y - .5, 3.6, .85);
+    // Taschenlampe nur aufrecht (nicht am Boden, getragen oder am Haken)
+    if (MODE !== 'team' || (V.hp > 0 && !V.carried && !V.hung && !V.out)) {
+      const a = V.dir, R = 7, g = lx.createRadialGradient(V.x, V.y - .4, .3, V.x, V.y - .4, R);
+      g.addColorStop(0, 'rgba(0,0,0,.78)'); g.addColorStop(1, 'rgba(0,0,0,0)'); lx.fillStyle = g;
+      lx.beginPath(); lx.moveTo(V.x, V.y - .4); lx.arc(V.x, V.y - .4, R, a - .48, a + .48); lx.closePath(); lx.fill();
+    }
   }
   // Teamkollegen tragen auch ein kleines Licht
-  for (const sv of SV) if (sv !== S && state === 'play' && survShown(sv, visM)) lg(lx, sv.x, sv.y - .5, 2.4, .6);
+  for (const sv of SV) if (sv !== V && state === 'play' && survShown(sv, visM)) lg(lx, sv.x, sv.y - .5, 2.4, .6);
+  if (MODE === 'team' && state === 'play') for (const sv of SV) if (sv.hung && (visM & (1 << roomAt(sv.hung.front.x, sv.hung.front.y)))) lg(lx, sv.hung.cx + .3, sv.hung.cy - .3, 2.2, .55);
   if (state !== 'play' && K) lg(lx, K.x, K.y - .5, 3, .6);
   for (const L of LAMPS) if (visM & (1 << L.room)) lg(lx, L.x, L.y, L.r, L.a * flick(L));
   for (const t of tasks) if (t.done && (visM & (1 << t.room))) lg(lx, t.cx, t.cy - .4, 3.6, .8);
   if (state === 'caught' && seq.phase !== 'hit' && seq.phase !== 'carry') lg(lx, seq.hook.cx, seq.hook.cy, 3, .7);
+  if (MODE === 'team') for (const d of deaths) if (T - d.t0 < 3) lg(lx, d.h.cx + .3, d.h.cy + .4, 3, .7 * clamp((3 - (T - d.t0)) / .6, 0, 1));
   lx.restore();
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.imageSmoothingEnabled = true;
@@ -37,7 +43,7 @@ function drawLight(z, ox, oy, visM) {
 }
 function glow(x, y, r, col) { const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, col); g.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2); }
 function stains() {
-  const out = [];
+  const out = [], S = viewer();
   if (state !== 'play' || killerVisible() || hyp(K.x - S.x, K.y - S.y) > 16) return out;
   for (const o of openings) {
     const d = hyp(K.x - o.cx, K.y - o.cy); if (d > 4.8) continue;
@@ -55,7 +61,8 @@ function drawGlows(visM) {
   ctx.globalCompositeOperation = 'lighter';
   for (const L of LAMPS) if (visM & (1 << L.room)) glow(L.x, L.y, L.r * .9, L.red ? `rgba(255,40,25,${.16 * flick(L)})` : `rgba(255,190,120,${.07 * flick(L)})`);
   for (const t of tasks) if (t.done && (visM & (1 << t.room))) glow(t.cx, t.cy - .5, 2.4, 'rgba(255,220,150,.1)');
-  if (state === 'play' && !S.hidden) glow(S.x + Math.cos(S.dir) * 1.6, S.y - .3 + Math.sin(S.dir) * 1.6, 2.4, 'rgba(255,225,170,.06)');
+  const V = viewer();
+  if (state === 'play' && !V.hidden && (MODE !== 'team' || (V.hp > 0 && !V.carried && !V.hung && !V.out))) glow(V.x + Math.cos(V.dir) * 1.6, V.y - .3 + Math.sin(V.dir) * 1.6, 2.4, 'rgba(255,225,170,.06)');
   if (killerVisible()) {
     const fx = K.x + Math.cos(K.dir) * 1.1, fy = K.y + Math.sin(K.dir) * 1.1;
     glow(fx, fy, 2.5, 'rgba(255,12,12,.3)'); glow(K.x, K.y - .6, .9, 'rgba(255,20,20,.12)');
@@ -73,6 +80,7 @@ function drawGlows(visM) {
     for (let k = 0; k < 2; k++) { const rr_ = (a + k * .25) * (n.loud ? 3.2 : 1.8); if (rr_ > 0) { ctx.beginPath(); ctx.arc(n.x, n.y, rr_, 0, TAU); ctx.stroke(); } }
   }
   if (state === 'caught' && (seq.phase === 'hung' || seq.phase === 'fade')) glow(seq.hook.cx, seq.hook.cy + .5, 3.5, `rgba(255,0,0,${.25 + .1 * Math.sin(T * 5)})`);
+  if (MODE === 'team') for (const d of deaths) { const a = T - d.t0; if (a < 3) glow(d.h.cx + .3, d.h.cy + .5, 3.5, `rgba(255,0,0,${(.3 + .1 * Math.sin(T * 5)) * clamp((3 - a) / .6, 0, 1)})`); }
   ctx.globalCompositeOperation = 'source-over';
   if (state === 'play' && TUT) {
     for (const g of TUT.targets) {
@@ -95,10 +103,12 @@ function drawGlows(visM) {
     if (gatesPowered) for (const g of gates) {
       ctx.strokeStyle = `rgba(160,255,190,${.7 * p})`; ctx.lineWidth = .06; ctx.strokeRect(g.x0 - .2, g.y - 1.2, g.x1 - g.x0 + 1.4, 1.9);
     }
+    if (MODE === 'team') drawTeamWorld(visM);
   }
 }
-function drawClaws() {
-  const h = seq.hook, t = seq.phase === 'fade' ? 3 + seq.t : seq.t, grow = clamp((t - .9) / 1.4, 0, 1);
+/* Klauen aus dem Boden: h = Haken (oder {cx, cy} wie ein Haken), t = Zeit (wachsen ab 0,9 s) */
+function drawClaws(h = seq.hook, t = seq.phase === 'fade' ? 3 + seq.t : seq.t) {
+  const grow = clamp((t - .9) / 1.4, 0, 1);
   if (grow <= 0) return;
   for (let k = 0; k < 5; k++) {
     const a = -Math.PI / 2 + (k - 2) * .55, bx = h.cx + .3 + Math.cos(a + Math.PI) * .95 * (k % 2 ? 1 : .8), by = h.cy + .95;
@@ -110,8 +120,14 @@ function drawClaws() {
 function collectEnts() {
   const e = [];
   if (state !== 'title' && state !== 'end') {
-    const visM = SV.length > 1 ? visibleMask() : 0;
-    for (const sv of SV) if (sv && !sv.ghost && !sv.hidden && !sv.carried && !sv.hung && !sv.out && (sv === S || survShown(sv, visM))) e.push({ y: sv.y, d: () => drawSurv(sv) });
+    const visM = SV.length > 1 ? visibleMask() : 0, V = viewer();
+    for (const sv of SV) if (sv && !sv.ghost && !sv.hidden && !sv.carried && !sv.hung && !sv.out && (sv === V || survShown(sv, visM))) e.push({ y: sv.y, d: () => drawSurv(sv) });
+    // Team: wer durchs Tor läuft, und wer am Boden geopfert wurde
+    if (MODE === 'team') for (const sv of SV) {
+      if (sv.leave && sv.leave.t < 1.6 && (sv.mask & visM)) e.push({ y: sv.y, d: () => { ctx.save(); ctx.globalAlpha = clamp(1 - sv.leave.t / 1.6, 0, 1); drawSurv(sv); ctx.restore(); } });
+      const dd = deaths.find(d => d.sv === sv && d.how !== 'hook');
+      if (dd && T - dd.t0 < 2.4 && (sv.mask & visM)) e.push({ y: dd.y, d: () => { ctx.save(); ctx.globalAlpha = clamp((2.4 - (T - dd.t0)) / .6, 0, 1); drawDowned(sv, dd.x, dd.y); ctx.restore(); } });
+    }
   }
   if (K && killerVisible()) e.push({ y: K.y, d: drawKiller });
   e.sort((a, b) => a.y - b.y);
@@ -144,6 +160,12 @@ function render() {
   while (ei < ents.length) { ents[ei].d(); ei++; }
   for (const p of parts) { const a = p.fade ? p.life / p.max : Math.min(1, p.life / p.max * 2); ctx.fillStyle = `rgba(${p.col},${a})`; if (p.fade) { ctx.beginPath(); ctx.arc(p.x, p.y - p.z, p.sz * (1.6 - a), 0, TAU); ctx.fill(); } else ctx.fillRect(p.x - p.sz / 2, p.y - p.z - p.sz / 2, p.sz, p.sz); }
   if (state === 'caught' && (seq.phase === 'hung' || seq.phase === 'fade')) drawClaws();
+  if (MODE === 'team') for (const d of deaths) {
+    // Klauen wachsen sofort, ziehen den Körper weg und verschwinden wieder
+    const a = T - d.t0; if (a > 3) continue;
+    const g = a < 2.4 ? clamp(a / 1.1, 0, 1) : clamp(1 - (a - 2.4) / .5, 0, 1);
+    drawClaws(d.h, .9 + 1.4 * g);
+  }
   const visM = visibleMask();
   drawLight(z, ox, oy, visM);
   ctx.setTransform(DPR * z, 0, 0, DPR * z, DPR * ox, DPR * oy);
@@ -151,4 +173,50 @@ function render() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   drawOverlays(z, ox, oy);
   if (state === 'play') drawHUD(z, ox, oy);
+}
+
+/* ---- Team: Liegende, Hängende, Leisten in der Welt ---- */
+/* Am Boden: liegend (Kopf in Kriechrichtung), beim Kriechen Arme nach vorn und strampelnde Beine */
+function drawDowned(sv, x = sv.x, y = sv.y) {
+  const s = Math.cos(sv.dir) >= 0 ? 1 : -1, crawl = sv.moving && !sv.out;
+  ctx.fillStyle = 'rgba(0,0,0,.42)'; ctx.beginPath(); ctx.ellipse(x, y + .02, .66, .17, 0, 0, TAU); ctx.fill();
+  if (!crawl) { ctx.fillStyle = 'rgba(110,8,14,.55)'; ctx.beginPath(); ctx.ellipse(x - s * .1, y + .08, .42, .12, 0, 0, TAU); ctx.fill(); }
+  const breathe = crawl ? 0 : Math.sin(T * 2.6) * .012;
+  drawHuman(x - s * .55, y + .14 + breathe, { look: skinOf(sv), face: 2, lie: s * Math.PI / 2, pose: crawl ? 'hang' : null, moving: false, noShadow: true, hurt: true, shake: sv.flinch > 0 ? .03 : 0 });
+}
+/* Am Haken (statt der Solo-Figur in hookTile): ab 0,5 Kampfphase mit Zucken; tot → die Klauen holen ihn */
+function drawHung(sv, px, base) {
+  const dead = sv.out === 'dead', a = dead ? T - sv.outT : 0, fade = dead ? clamp(1 - (a - 1.5) / .8, 0, 1) : 1;
+  if (fade <= 0) return;
+  const fight = !dead && sv.hookProg >= .5, jerk = fight ? (Math.sin(T * 17) > .5 ? .05 : .014) : dead ? .02 * fade : 0;
+  ctx.save(); ctx.globalAlpha = fade;
+  drawHuman(px + .3, base + .05 - (dead ? Math.max(0, a - 1.1) * .6 : 0), { look: skinOf(sv), face: 0, pose: 'hang', z: .72, moving: false, hurt: true, shake: jerk });
+  ctx.restore();
+}
+function worldBar(cx, y, w, p, col, tick) {
+  ctx.fillStyle = 'rgba(0,0,0,.75)'; rr(cx - w / 2 - .04, y - .04, w + .08, .18, .06);
+  ctx.fillStyle = col; ctx.fillRect(cx - w / 2, y, w * clamp(p, 0, 1), .1);
+  if (tick) { ctx.fillStyle = 'rgba(235,231,220,.9)'; ctx.fillRect(cx - w / 2 + w * tick - .015, y - .05, .03, .2); }
+}
+function drawTeamWorld(visM) {
+  for (const sv of SV) {
+    if (sv.out) continue;
+    if (sv.hung) {
+      const h = sv.hung, fight = sv.hookProg >= .5, x = h.cx + .3;
+      ctx.globalCompositeOperation = 'lighter';
+      glow(x, h.cy - .2, fight ? 2.4 : 1.8, `rgba(255,20,20,${fight ? .26 + .1 * Math.sin(T * 9) : .16})`);
+      ctx.globalCompositeOperation = 'source-over';
+      worldBar(x, h.cy - 2.05, 1.1, sv.hookProg, fight ? '#ff2d2d' : '#b3121b', .5);
+      if (sv.unhookProg > 0) worldBar(x, h.cy - 1.82, 1.1, sv.unhookProg, '#ebe7dc');
+    } else if (sv.carried) {
+      if (sv.wiggle > 0) worldBar(K.x, K.y - 2.15, .9, sv.wiggle, '#f2c14b');
+    } else {
+      const healing = T - sv.healedT < .25;
+      if (sv.hp <= 0) {
+        // Liegende sieht man auch durch Wände (pulsierender Ring)
+        if (!(sv.mask & visM)) { const p = (T * .8) % 1; ctx.strokeStyle = `rgba(255,120,60,${.8 * (1 - p)})`; ctx.lineWidth = .06; ctx.beginPath(); ctx.ellipse(sv.x, sv.y, .4 + p * .5, (.4 + p * .5) * .5, 0, 0, TAU); ctx.stroke(); }
+        if (sv.healProg > 0 || healing) worldBar(sv.x, sv.y - .95, .9, sv.healProg, '#7dff9a');
+      } else if (healing || (sv.healProg > 0 && SV.some(v => v.heal === sv))) worldBar(sv.x, sv.y - 1.75, .9, sv.healProg, '#7dff9a');
+    }
+  }
 }

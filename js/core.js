@@ -28,6 +28,10 @@ const CFG = {
   costWin: 6, costPal: 9, palletLoop: 20,
   markLife: 6, markStep: 0.38,
   genTime: 14, valveTime: 6,
+  // Team-Regeln (Phase 2, js/rules.js): Zeiten in s, Wege in Kacheln
+  crawl: .9, carryV: 3.6, pickT: 1, hookT: .9, hookStage: 30, unhookT: 1.2, unhookBurst: 1.5, unhookR: 1.3,
+  healInj: 12, healDown: 10, healR: 1.25, wiggleN: 66, wiggleStun: 2, wiggleBurst: 1.2,
+  loopDrop: 40, ignoreT: 20, ignoreNear: 2, antiCamp: 12, duoTime: 20, botSkill: .85,
 };
 
 /* Kartenregister: js/maps/*.js tragen sich hier ein (MAPS[id] = {...}), js/map.js lädt sie */

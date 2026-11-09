@@ -140,7 +140,7 @@ function hookTile(x, y) {
   ctx.strokeStyle = '#8d8f94'; ctx.lineWidth = .05; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.moveTo(px + .3, base - 1.7); ctx.lineTo(px + .3, base - 1.38); ctx.arc(px + .22, base - 1.38, .08, 0, Math.PI * .9); ctx.stroke();
   ctx.fillStyle = 'rgba(120,10,15,.7)'; ctx.fillRect(px + .27, base - 1.42, .05, .08);
-  for (const sv of SV) if (sv.hung === hk) drawHuman(px + .3, base + .05, { look: skinOf(sv), face: 0, pose: 'hang', z: .72, moving: false, hurt: MODE === 'team' || undefined });
+  for (const sv of SV) if (sv.hung === hk) { if (MODE === 'team') drawHung(sv, px, base); else drawHuman(px + .3, base + .05, { look: skinOf(sv), face: 0, pose: 'hang', z: .72, moving: false }); }
 }
 function genTile(x, y) {
   const t = taskAt[I(x, y)], h = .5, working = isWorked(t);

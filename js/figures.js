@@ -256,8 +256,9 @@ function drawHuman(x, y, o) {
   ctx.restore();
 }
 function drawSurv(sv = S) {
+  if (MODE === 'team' && sv.hp <= 0) { drawDowned(sv); return; }
   let pose = null, lie = 0;
-  if (sv.work) pose = 'work';
+  if (sv.work || sv.heal || sv.unhook) pose = 'work';
   if (sv === S && state === 'caught' && seq.phase === 'hit') lie = Math.PI / 2 * Math.min(1, seq.t * 5);
   if (sv.burst > 0 && sv.moving) {
     const a = sv.burst / CFG.burstT, bx = -Math.cos(sv.dir), by = -Math.sin(sv.dir);
@@ -269,12 +270,14 @@ function drawSurv(sv = S) {
 }
 function drawKiller() {
   const a = K.act; let pose = null, face = null;
-  if (a) { if (a.kind === 'lunge') pose = 'lunge'; if (a.kind === 'break' || a.kind === 'kick') pose = Math.sin(a.t * 11) > 0 ? 'lunge' : 'swing'; if (a.kind === 'recover') pose = 'swing'; if (a.kind === 'wipe') pose = a.t % .5 < .25 ? 'swing' : null; }
+  if (a) { if (a.kind === 'lunge' || a.kind === 'hook') pose = 'lunge'; if (a.kind === 'break' || a.kind === 'kick') pose = Math.sin(a.t * 11) > 0 ? 'lunge' : 'swing'; if (a.kind === 'recover' || a.kind === 'pick') pose = 'swing'; if (a.kind === 'wipe') pose = a.t % .5 < .25 ? 'swing' : null; }
   if (state === 'caught' && seq.phase === 'lift') pose = 'lunge';
   if (state === 'caught' && seq.phase === 'hung' && seq.t > .6) face = 0;
   drawHuman(K.x, K.y, { look: 'killer', dir: K.dir, moving: K.moving, walk: K.walk, z: K.z, pose, face });
   const cs = SV.find(s => s.carried);
-  if (cs) drawHuman(K.x + .42, K.y, { look: skinOf(cs), face: 0, lie: -Math.PI / 2, z: .8, noShadow: true, moving: true, walk: T * 3 });
+  // Getragener: zappelt er gerade, wackelt er sichtbar; beim Aufhängen wird er hochgehoben
+  const wig = cs && MODE === 'team' && T - (cs.wigT || -9) < .22, lift = a && a.kind === 'hook' ? Math.min(1, a.t / a.dur) : 0;
+  if (cs) drawHuman(K.x + .42 - lift * .1, K.y, { look: skinOf(cs), face: 0, lie: -Math.PI / 2 * (1 - lift * .6), z: .8 + lift * .35, noShadow: true, moving: true, walk: wig ? T * 14 : T * 3, shake: wig ? .045 : 0 });
   if (a && a.kind === 'stun') { for (let i = 0; i < 3; i++) { const an = T * 5 + i * TAU / 3; circ(K.x + Math.cos(an) * .25, K.y - 1.42 + Math.sin(an) * .08, .04, 'rgba(255,240,200,.9)'); } }
   if (a && a.kind === 'lunge' && a.t > a.dur * .5) {
     ctx.strokeStyle = `rgba(255,255,255,${.7 * (1 - a.t / a.dur)})`; ctx.lineWidth = .06;

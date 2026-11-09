@@ -4,6 +4,7 @@
 const joy = { id: null, bx: 0, by: 0, x: 0, y: 0 };
 const JOY_R = 54;
 const keys = { u: 0, d: 0, l: 0, r: 0, shift: 0 };
+let actHeld = false; // Aktionsknopf/-taste gerade gedrückt (Retten = halten)
 function readInput() {
   if (joy.id !== null) {
     const dx = joy.x - joy.bx, dy = joy.y - joy.by, l = hyp(dx, dy);
@@ -15,6 +16,7 @@ function readInput() {
   return { x: 0, y: 0, mag: 0, walk: false };
 }
 function updateSurv(dt) {
+  if (MODE === 'team' && teamSurv(S, dt)) return;
   survTick(S, dt);
   if (S.hp < 2 && !S.hidden) { S.breathT -= dt; if (S.breathT <= 0) { S.breathT = rand(2.5, 4.5); SFX.breath(); } }
   if (S.act) { survAct(S, dt); return; }
@@ -23,7 +25,7 @@ function updateSurv(dt) {
   if (S.work) {
     const radioKeys = Q && Q.type === 'radio' && joy.id === null;
     if (!radioKeys && inp.mag > 0.4) stopWork();
-    else { S.moving = S.running = false; S.dir = Math.atan2(S.work.cy - S.y, S.work.cx - S.x); return; }
+    else { const ws = S.work.stations ? S.work.stations[S.station] : S.work; S.moving = S.running = false; S.dir = Math.atan2(ws.cy - S.y, ws.cx - S.x); return; }
   }
   if (inp.mag < 0.15) { S.moving = S.running = false; return; }
   everMoved = true;
@@ -34,10 +36,10 @@ function survTick(sv, dt) {
   const m = mask[I(sv.x | 0, sv.y | 0)]; if (m) sv.mask = m;
   sv.flinch = Math.max(0, sv.flinch - dt); sv.burst = Math.max(0, sv.burst - dt);
 }
-/* Laufen nach Eingabe-Vektor {x, y, mag, walk} (eigene Figur, auch für Bots nutzbar) */
+/* Laufen nach Eingabe-Vektor {x, y, mag, walk} (eigene Figur, auch für Bots nutzbar). Am Boden (hp 0): kriechen. */
 function survMove(sv, inp, dt) {
-  sv.running = (inp.mag > 0.62 && !inp.walk) || sv.burst > 0;
-  const spd = sv.burst > 0 ? CFG.sBurst : sv.running ? CFG.sRun : CFG.sWalk;
+  sv.running = sv.hp > 0 && ((inp.mag > 0.62 && !inp.walk) || sv.burst > 0);
+  const spd = sv.hp <= 0 ? CFG.crawl : sv.burst > 0 ? CFG.sBurst : sv.running ? CFG.sRun : CFG.sWalk;
   sv.dir = Math.atan2(inp.y, inp.x);
   const ox = sv.x, oy = sv.y;
   moveEnt(sv, Math.cos(sv.dir) * spd * dt, Math.sin(sv.dir) * spd * dt);
@@ -55,12 +57,15 @@ function survMoved(sv, md, dt) {
   const gt = gateAt[I(sv.x | 0, sv.y | 0)];
   if (gt && gt.open >= 1) { if (MODE === 'team') escapeSurv(sv, gt); else win(gt); }
 }
-/* Andere Überlebende (Bots, Mitspieler): sv.ctl(sv, dt) steuert (Bot-KI bzw. Netz) */
+/* Andere Überlebende (Bots, Mitspieler): sv.ctl(sv, dt) steuert (Bot-KI bzw. Netz).
+   ctl läuft auch am Boden, getragen und am Haken (Kriechen, wiggle) – Getragene/Hängende behalten ihre Position. */
 function updateOther(sv, dt) {
   if (sv.out || sv.ghost) return;
   survTick(sv, dt);
   if (sv.act) { survAct(sv, dt); return; }
   if (sv.ctl) sv.ctl(sv, dt); else sv.moving = sv.running = false;
+  if (sv.hung) { sv.x = sv.hung.front.x; sv.y = sv.hung.front.y; sv.moving = sv.running = false; }
+  else if (sv.carried) { sv.x = K.x; sv.y = K.y; sv.moving = sv.running = false; }
 }
 function survAct(sv, dt) {
   const a = sv.act; a.t += dt; const p = Math.min(1, a.t / a.dur);
@@ -76,6 +81,7 @@ function survAct(sv, dt) {
 }
 function computeAction() {
   if (state !== 'play' || S.act) return null;
+  if (MODE === 'team') { const a = teamActionPre(); if (a !== undefined) return a; }
   if (S.hidden) return { kind: 'unhide' };
   if (S.work) return { kind: 'work' };
   let best = null, bs = 1e9;
@@ -95,14 +101,19 @@ function computeAction() {
     const al = dx * w.ax.x + dy * w.ax.y, lat = Math.abs(dx * w.ax.y - dy * w.ax.x);
     if (lat < .5 && Math.abs(al) > .35 && Math.abs(al) < 1.4) take('vault', w, Math.abs(al) - (chase ? 1.6 : 1.0));
   }
-  // Duo-Aufgabe (zwei Stationen) baut die Regel-Logik; besetzte Aufgaben sind tabu
+  // Normale Aufgaben (besetzte sind tabu); die Duo-Stationen prüft teamActions
   for (const t of tasks) { if (t.done || t.type === 'duo' || isWorked(t)) continue; const d = hyp(S.x - t.cx, S.y - t.cy); if (d < 1.35) take('task', t, d - .2); }
+  // Team: Duo-Station (st = 0|1), Heilen, Retten
+  if (MODE === 'team') teamActions((kind, o, sc, st) => { if (sc < bs) { bs = sc; best = { kind, o, st }; } });
   for (const L of lockers) { const d = hyp(S.x - L.front.x, S.y - L.front.y); if (d < .7) take('hide', L, d + .25); }
   return best;
 }
 function doAction() {
   const a = actNow; if (!a) return;
-  if (a.kind === 'task') startWork(a.o);
+  if (a.kind === 'task') { if (a.o.type === 'duo') startWorkFor(S, a.o, a.st); else startWork(a.o); }
+  else if (a.kind === 'wiggle') wiggle(S);
+  else if (a.kind === 'heal') startHeal(S, a.o);
+  else if (a.kind === 'rescue') startUnhook(S, a.o);
   else if (a.kind === 'drop') dropPallet(a.o);
   else if (a.kind === 'vault') vaultOver(a.o, true);
   else if (a.kind === 'vaultP') vaultOver(a.o, false);
@@ -121,6 +132,7 @@ function dropPallet(p, sv = S) {
     const side = Math.abs(kl) > .05 ? Math.sign(kl) : -s;
     K.x += p.ax.x * (side * (.5 + K.r + .03) - kl); K.y += p.ax.y * (side * (.5 + K.r + .03) - kl);
     K.act = { kind: 'stun', t: 0, dur: CFG.stun }; stats.stuns++; K.blood = 0; K.chaseT = 0; K.path = null; SFX.stun(); shake(sv === S ? .5 : .3);
+    if (MODE === 'team' && K.carry) dropCarried('pallet'); // Paletten-Stun beim Tragen: er lässt fallen
     if (TUT) toast('Volltreffer – er ist betäubt!');
   }
   sv.act = { kind: 'drop', t: 0, dur: .28 };
