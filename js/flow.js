@@ -121,6 +121,7 @@ function step(dt) {
   flash = Math.max(0, flash - dt * 1.6); chaseFlash = Math.max(0, chaseFlash - dt * 1.4);
   if (state === 'end' && endWon) {
   }
+  if (MODE === 'team' && Sync.active) Sync.tick(dt);   // Online: Zustand verschicken (js/sync.js)
   cam.sh = Math.max(0, cam.sh - dt * 2.2);
   updateCamera(dt);
   updateHeart(dt);

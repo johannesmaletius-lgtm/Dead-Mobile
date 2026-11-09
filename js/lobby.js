@@ -69,7 +69,7 @@ const Lobby = (() => {
   function titleScene() {
     useMap('schule'); MODE = 'solo'; TUT = null; demoInit(); state = 'title';
     for (const k in keys) keys[k] = 0; joy.id = null;
-    $('#end').hidden = true; $('#pause').hidden = true; $('#pauseBtn').hidden = true; $('#tutCard').hidden = true;
+    $('#end').hidden = true; $('#pause').hidden = true; $('#pauseBtn').hidden = true; $('#tutCard').hidden = true; netPaused = false;
   }
   // Pause- und Endbildschirm: im Team-Spiel „Zum Menü" bzw. „Raum verlassen", online kein Neustart
   function gameButtons(on) {

@@ -8,6 +8,7 @@ let SV = [], MODE = 'solo';
 let S, K, Q = null, seq = null, marks = [], parts = [], splats = [], noises = [];
 let endgame = false, gatesPowered = false, flash = 0, flashCol = '195,18,31', eyeT = -9, chaseFlash = 0;
 let endWon = false, TUT = null, toastMsg = null, toastT = -9;
+let netPaused = false; // Online: Pause ist nur eine Überlagerung, das Spiel läuft weiter (js/main.js)
 const qteSeen = new Set();
 function toast(msg) { toastMsg = msg; toastT = T; }
 let hbNext = 0, hbPulse = 0, terror = 0, everMoved = false, isTouch = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
@@ -40,7 +41,7 @@ function resetWorld() {
 function uiPlay(tut) {
   $('#title').hidden = true; $('#end').hidden = true; $('#pause').hidden = true;
   $('#pauseBtn').hidden = tut; $('#tutCard').hidden = !tut;
-  $('#specBar').hidden = true; $('#teamRes').hidden = true;
+  $('#specBar').hidden = true; $('#teamRes').hidden = true; netPaused = false;
 }
 /* Karte wechseln (nur wenn nötig – baut Boden und Licht neu) */
 function useMap(id) { if (MAPID !== id) { loadMap(id); onMapLoaded(); } }

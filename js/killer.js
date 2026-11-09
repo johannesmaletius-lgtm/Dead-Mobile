@@ -139,6 +139,7 @@ function pickPatrol() {
 }
 function updateKiller(dt) {
   const m = mask[I(K.x | 0, K.y | 0)]; if (m) K.mask = m;
+  if (K.net) { K.net(dt); return; }   // Online-Client: der Killer kommt vom Host (js/sync.js)
   if (K.ctl) { if (K.act) runAct(dt); else K.ctl(dt); return; }
   if (K.moving) { K.stepT -= dt; if (K.stepT <= 0) { K.stepT = K.mode === 'chase' ? .28 : .42; if (state === 'play' && killerVisible()) SFX.kstep(); } }
   // Team: Liegende aufheben (Vorrang), tragen, aufhängen

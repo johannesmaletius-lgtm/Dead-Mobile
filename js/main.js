@@ -4,13 +4,13 @@
 function hitAct(x, y) { const b = actBtn(); return hyp(x - b.x, y - b.y) < b.r + 22; }
 function hitArrow(x, y) { for (const b of arrowPad()) if (hyp(x - b.x, y - b.y) < 36) return b.d; return -1; }
 const ptr = new Map();
-function actionDown() { if (state !== 'play') return; actHeld = true; if (Q) { qteDown(); return; } doAction(); }
+function actionDown() { if (state !== 'play' || netPaused) return; actHeld = true; if (Q) { qteDown(); return; } doAction(); }
 function actionUp() { actHeld = false; qteUp(); }
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
   if (e.pointerType === 'touch') isTouch = true;
   A.init();
-  if (state !== 'play') return;
+  if (state !== 'play' || netPaused) return;
   const x = e.clientX, y = e.clientY;
   if (Q && Q.type === 'radio') { const d = hitArrow(x, y); if (d >= 0) { qteArrow(d); ptr.set(e.pointerId, 'arrow'); return; } }
   if (hitAct(x, y) && !(Q && Q.type === 'radio')) { ptr.set(e.pointerId, 'act'); actionDown(); return; }
@@ -32,9 +32,9 @@ const KMAP = { ArrowUp: 'u', KeyW: 'u', ArrowDown: 'd', KeyS: 'd', ArrowLeft: 'l
 const ADIR = { u: 0, r: 1, d: 2, l: 3 };
 window.addEventListener('keydown', e => {
   if (Lobby.key(e)) return;   // Team-Menü/Lobby offen: Escape = zurück, Eingabefelder bekommen alle Tasten
-  if (e.code === 'Escape' || e.code === 'KeyP') { if (state === 'play') { if (Q && e.code === 'Escape') stopWork(); else pauseGame(); } else if (state === 'paused') resumeGame(); return; }
+  if (e.code === 'Escape' || e.code === 'KeyP') { if (netPaused) resumeGame(); else if (state === 'play') { if (Q && e.code === 'Escape') stopWork(); else pauseGame(); } else if (state === 'paused') resumeGame(); return; }
   if ((e.code === 'Space' || e.code === 'Enter') && (state === 'title' || state === 'end') && document.activeElement === document.body) { e.preventDefault(); if (state === 'end' && MODE === 'team') againPressed(); else playPressed(); return; }
-  if (state !== 'play') return;
+  if (state !== 'play' || netPaused) return;
   const k = KMAP[e.code];
   if (k) {
     e.preventDefault();
@@ -51,8 +51,17 @@ window.addEventListener('keyup', e => {
 });
 
 /* ================= Bildschirme ================= */
-function pauseGame() { if (state !== 'play') return; prevState = state; state = 'paused'; $('#pause').hidden = false; $('#pauseBtn').hidden = true; for (const k in keys) keys[k] = 0; joy.id = null; actHeld = false; qteUp(); }
-function resumeGame() { if (state !== 'paused') return; state = prevState; $('#pause').hidden = true; $('#pauseBtn').hidden = !!TUT; A.init(); }
+const online = () => Sync.active && MODE === 'team';
+function dropInput() { for (const k in keys) keys[k] = 0; joy.id = null; actHeld = false; qteUp(); }
+/* Online hält niemand das Spiel an: die Pause ist dort nur eine Überlagerung (netPaused), die eigene Figur bleibt stehen. */
+function netPause(on) {
+  if (on === netPaused) return;
+  netPaused = on; $('#pause').hidden = !on;
+  if (state === 'play') $('#pauseBtn').hidden = on;
+  if (on) { dropInput(); if (Q) stopWork(); }
+}
+function pauseGame() { if (state !== 'play') return; if (online()) { netPause(true); return; } prevState = state; state = 'paused'; $('#pause').hidden = false; $('#pauseBtn').hidden = true; dropInput(); }
+function resumeGame() { if (netPaused) { netPause(false); A.init(); return; } if (state !== 'paused') return; state = prevState; $('#pause').hidden = true; $('#pauseBtn').hidden = !!TUT; A.init(); }
 const SND_ON = '<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>';
 const SND_OFF = '<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>';
 function sndUI() { for (const id of ['#sndT', '#sndP']) { $(id).innerHTML = A.on ? SND_ON : SND_OFF; $(id).setAttribute('aria-pressed', A.on ? 'true' : 'false'); } }
@@ -71,7 +80,7 @@ $('#again').addEventListener('click', againPressed);
 $('#resume').addEventListener('click', resumeGame);
 $('#restart').addEventListener('click', restartPressed);
 $('#pauseBtn').addEventListener('click', pauseGame);
-document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { last = performance.now(); return; } if (online()) dropInput(); else pauseGame(); });
 function showTitle() {
   if (save.best) { const b = $('#best'); b.hidden = false; b.innerHTML = gateSvg + fmt(save.best); }
   sndUI();
@@ -113,22 +122,28 @@ function installAppMeta() {
   } catch (e) {}
 }
 let last = performance.now(), acc = 0;
-function frame(now) {
-  requestAnimationFrame(frame);
-  let dt = (now - last) / 1000; last = now; if (dt > .25) dt = .25;
+function advance(now, maxDt, maxN) {
+  let dt = (now - last) / 1000; last = now; if (dt > maxDt) dt = maxDt;
   if (state !== 'paused' && !window.__freeze) {
     acc += dt; const STEP = 1 / 60; let n = 0;
-    while (acc >= STEP && n < 6) { step(STEP); acc -= STEP; n++; }
-    if (n >= 6) acc = 0;
+    while (acc >= STEP && n < maxN) { step(STEP); acc -= STEP; n++; }
+    if (n >= maxN) acc = 0;
     updateMusic();
   }
+}
+function frame(now) {
+  requestAnimationFrame(frame);
+  advance(now, .25, 6);
   render();
 }
+/* Online im Hintergrund-Tab (kein requestAnimationFrame): js/sync.js treibt die Simulation über einen Taktgeber weiter,
+   ohne zu zeichnen. Holt bis zu 1,5 s nach, damit der Host auch bei gedrosselten Timern in Echtzeit bleibt. */
+function bgFrame() { advance(performance.now(), 1.5, 90); }
 requestAnimationFrame(frame);
 
 window.__ns = {
   get S() { return S; }, get K() { return K; }, get SV() { return SV; }, get mode() { return MODE; }, get map() { return MAPID; },
-  MAPS, loadMap, useMap, startTeam, taskPoints, Net, Lobby, Bots, get T() { return T; }, get endgame() { return endgame; }, stats, get need() { return NEED; }, get Q() { return Q; }, get state() { return state; }, get act() { return actNow; },
+  MAPS, loadMap, useMap, startTeam, taskPoints, Net, Lobby, Bots, Sync, get netPaused() { return netPaused; }, get T() { return T; }, get endgame() { return endgame; }, stats, get need() { return NEED; }, get Q() { return Q; }, get state() { return state; }, get act() { return actNow; },
   tasks, pallets, windows, lockers, hooks, gates, findPath, ch, startGame, caught, stains, killerVisible, killerSees,
   tp(x, y) { S.x = x; S.y = y; }, ktp(x, y) { K.x = x; K.y = y; K.path = null; K.goal = null; K.act = null; },
   finish(n = tasks.length) { tasks.slice(0, n).forEach(t => { if (!t.done) complete(t); }); },

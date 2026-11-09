@@ -5,6 +5,8 @@
 //      node_modules/peerjs (dist/peerjs.min.js). Die CDN-Adressen werden auf die lokale Datei umgeleitet.
 //      Zusätzlich: Ausweich-CDN, kein Netz, falscher Code, Host verlässt das Spiel.
 //   c) offline „Mit Bots spielen": 1 lokaler + 2 Bots
+//   d) Synchronisierung im Spiel (Netz Teil 2): Bewegung, Aufgaben, Palette, Treffer/Haken/Retten/Heilen, Pause,
+//      Hintergrund-Tab, Mitspieler geht (Bot übernimmt), Spielende – über BroadcastChannel und (mit --peer) PeerJS
 //   --shots: Bildschirmfotos der Lobby (900×450, deviceScaleFactor 2). --fonts: Ordner mit fonts.css + *.woff2 (sonst ohne Webfonts).
 const { chromium } = require('playwright');
 const fs = require('fs'), path = require('path'), { spawn } = require('child_process'), http = require('http');
@@ -12,7 +14,7 @@ const fs = require('fs'), path = require('path'), { spawn } = require('child_pro
 const args = process.argv.slice(2), opt = {};
 for (let i = 0; i < args.length; i++) if (args[i].startsWith('--')) opt[args[i].slice(2)] = args[++i]; else opt.file = args[i];
 const FILE = path.resolve(opt.file || 'index.html'), URL0 = 'file://' + FILE;
-const PORT = +(opt.port || 9000), SHOTS = opt.shots, FONTS = opt.fonts, ONLY = (opt.only || 'a,b,c').split(',');
+const PORT = +(opt.port || 9000), SHOTS = opt.shots, FONTS = opt.fonts, ONLY = (opt.only || 'a,b,c,d').split(',');
 const PEERDIR = opt.peer || process.env.PEER_DEPS;
 const CDN1 = /unpkg\.com\/peerjs/, CDN2 = /cdn\.jsdelivr\.net\/npm\/peerjs/;
 
@@ -155,9 +157,9 @@ async function lobbyFlow(browser, label, query, extra) {
 
   // Pause im Online-Spiel: Escape, „Raum verlassen" statt „Neu starten"
   await C1.keyboard.press('Escape');
-  ok(await st(C1) === 'paused' && await visible(C1, '#leaveP') && !(await visible(C1, '#restart')), 'Escape pausiert, Pause zeigt „Raum verlassen" statt Neustart');
+  ok(await st(C1) === 'play' && await visible(C1, '#pause') && await visible(C1, '#leaveP') && !(await visible(C1, '#restart')), 'Escape: Pause nur als Überlagerung (Spiel läuft weiter), „Raum verlassen" statt Neustart');
   await C1.keyboard.press('Escape');
-  ok(await st(C1) === 'play', 'Escape setzt fort');
+  ok(await st(C1) === 'play' && !(await visible(C1, '#pause')), 'Escape setzt fort');
 
   // Runde vorbei → „Nochmal": der Host nimmt alle mit zurück in den Raum, dann zweite Runde
   await H.evaluate(() => { window.__ns.SV.forEach(v => { v.out = 'escaped'; }); teamCheckEnd(); });
@@ -247,6 +249,106 @@ async function botsFlow(browser) {
   await ctx.close();
 }
 
+/* ---------- d) Synchronisierung im Spiel (Netz Teil 2) ---------- */
+async function syncFlow(browser, label, query) {
+  console.log(`\n${label}`);
+  const errs = [], ctx = await newCtx(browser);
+  const H = await open(ctx, query, errs, 'Host'), C1 = await open(ctx, query, errs, 'Ben'), C2 = await open(ctx, query, errs, 'Cleo');
+  const code = await host(H, 'Anna', 'medic');
+  await join(C1, 'Ben', 'janitor', code); await join(C2, 'Cleo', 'cop', code);
+  await waitSlots(H, 'Anna*|Ben|Cleo');
+  await H.click('#rStart');
+  for (const p of [H, C1, C2]) await p.waitForFunction(() => window.__ns.state === 'play', null, { timeout: 10000 }).catch(() => {});
+  const wait = (p, fn, arg, ms = 5000) => p.waitForFunction(fn, arg, { timeout: ms }).then(() => true, () => false);
+  const ev = (p, fn, arg) => p.evaluate(fn, arg);
+  ok(await ev(H, () => Sync.active && Sync.host) && await ev(C1, () => Sync.active && !Sync.host), 'Sync läuft: Anna ist Host, Ben Client');
+  // Killer und Welt kommen vom Host
+  await ev(H, () => { const n = window.__ns; n.K.ctl = () => { n.K.moving = false; }; n.ktp(n.S.x + 9, n.S.y); });
+  await sleep(500);
+  const kd = async p => { const a = await ev(H, () => [K.x, K.y]), b = await ev(p, () => [K.x, K.y]); return Math.hypot(a[0] - b[0], a[1] - b[1]); };
+  ok(await kd(C1) < .3 && await kd(C2) < .3, 'Killer steht bei den Clients dort, wo der Host ihn hat');
+  ok(await ev(C1, () => K.net && SV.filter(v => v !== S).every(v => !v.bot)), 'Client simuliert weder Killer noch Bots');
+  // Bewegung: Client → Host → anderer Client, geglättet
+  const pos = (p, id) => ev(p, id => { const v = SV.find(v => v.id === id); return [v.x, v.y, v.moving]; }, id);
+  const p0 = await pos(C1, 1);
+  await C1.keyboard.down('KeyD'); await sleep(450);
+  const mid = await pos(H, 1), midC2 = await pos(C2, 1);
+  await sleep(300); await C1.keyboard.up('KeyD'); await sleep(450);
+  const a1 = await pos(C1, 1), h1 = await pos(H, 1), c1 = await pos(C2, 1);
+  ok(Math.hypot(a1[0] - p0[0], a1[1] - p0[1]) > 1 && Math.hypot(a1[0] - h1[0], a1[1] - h1[1]) < .15, `Ben läuft: der Host sieht ihn an derselben Stelle (${h1[0].toFixed(2)} | ${a1[0].toFixed(2)})`);
+  ok(Math.hypot(a1[0] - c1[0], a1[1] - c1[1]) < .15 && mid[2] && midC2[2], 'Cleo sieht Ben auch dort; unterwegs lief die Figur bei Host und Cleo');
+  await H.keyboard.down('KeyA'); await sleep(500); await H.keyboard.up('KeyA'); await sleep(400);
+  const hh = await pos(H, 0), hc = await pos(C1, 0);
+  ok(Math.hypot(hh[0] - hc[0], hh[1] - hc[1]) < .15, 'Der Host läuft: Ben sieht ihn an derselben Stelle');
+  // Aufgabe: QTE beim Client, Besetzen und Fortschritt beim Host
+  await ev(C1, () => { const n = window.__ns, t = n.tasks[0]; n.tp(t.ax, t.ay); });
+  await sleep(250); await C1.keyboard.press('KeyE');
+  ok(await wait(H, () => SV[1].work === tasks[0] && tasks[0].prog > .02), 'Ben arbeitet am Aggregat: beim Host besetzt, Fortschritt läuft mit');
+  ok(await wait(C2, () => SV[1].work === tasks[0] && tasks[0].prog > .02), 'Cleo sieht Bens Arbeit und Fortschritt');
+  await ev(H, () => { const n = window.__ns, t = n.tasks[0]; n.tp(t.ax, t.ay); });
+  await sleep(200);
+  ok(await ev(H, () => { const a = computeAction(); return !a || a.o !== tasks[0]; }), 'Für den Host ist die Aufgabe besetzt');
+  await ev(C1, () => { tasks[0].prog = .995; });
+  ok(await wait(H, () => tasks[0].done && !SV[1].work) && await wait(C2, () => tasks[0].done), 'Ben wird fertig: Aufgabe bei allen erledigt');
+  // Palette werfen: Client sagt es, Host entscheidet über die Betäubung
+  await ev(C1, () => { const n = window.__ns, p = n.pallets[0]; n.tp(p.cx + p.ax.x * .8, p.cy + p.ax.y * .8); });
+  await ev(H, () => { const n = window.__ns, p = n.pallets[0]; n.ktp(p.cx - p.ax.x * .25, p.cy - p.ax.y * .25); });
+  await sleep(300); await C1.keyboard.press('KeyE');
+  ok(await wait(H, () => pallets[0].state === 1 && K.act && K.act.kind === 'stun'), 'Ben wirft die Palette: beim Host liegt sie, Killer betäubt');
+  ok(await wait(C2, () => pallets[0].state === 1 && K.act && K.act.kind === 'stun') && await ev(C1, () => window.__ns.stats.stuns === 1), 'Cleo sieht Palette und Betäubung, Ben bekommt den Stun gutgeschrieben');
+  await ev(H, () => { const n = window.__ns; n.ktp(n.S.x + 12, n.S.y); });
+  // Treffer → Boden → Tragen → Zappeln → Haken → Retten (alles Entscheidungen des Hosts)
+  await ev(H, () => hitSurvivor(SV[1]));
+  ok(await wait(C1, () => S.hp === 1 && S.burst > 0) && await wait(C2, () => SV[1].hp === 1), 'Treffer: Ben ist verletzt (mit Sprint), Cleo sieht es');
+  await ev(H, () => { K.ctl = null; hitSurvivor(SV[1]); });
+  ok(await wait(C1, () => S.hp === 0), 'Zweiter Treffer: Ben liegt am Boden');
+  ok(await wait(C1, () => S.carried && K.carry === S, null, 9000), 'Der Killer hebt Ben auf (Ben wird getragen)');
+  const w0 = await ev(H, () => SV[1].wiggle);
+  for (let i = 0; i < 6; i++) { await C1.keyboard.press('KeyE'); await sleep(40); }
+  ok(await wait(H, w0 => SV[1].wiggle > w0 + .05, w0), 'Ben zappelt: die Leiste füllt sich beim Host');
+  ok(await wait(C1, () => !!S.hung, null, 40000) && await wait(C2, () => !!SV[1].hung), 'Ben hängt am Haken – bei ihm und bei Cleo');
+  await ev(H, () => { const n = window.__ns; n.K.ctl = () => { n.K.moving = false; }; n.ktp(n.S.x, n.S.y); K.mode = 'patrol'; K.campUntil = -9; n.ktp(2.5, 2.5); });
+  await ev(C2, () => { const n = window.__ns, h = SV[1].hung; n.tp(h.front.x + .2, h.front.y + .3); });
+  await sleep(300); await C2.keyboard.down('KeyE');
+  const freed = await wait(H, () => !SV[1].hung && SV[1].hp === 1, null, 6000);
+  await C2.keyboard.up('KeyE');
+  ok(freed && await wait(C1, () => !S.hung && S.hp === 1 && !S.carried), 'Cleo hält die Aktion am Haken: Ben ist gerettet');
+  ok(await ev(C2, () => window.__ns.stats.rescues === 1), 'Cleo bekommt die Rettung gutgeschrieben');
+  // Heilen: Client heilt, Fortschritt beim Host
+  await sleep(300);
+  await ev(C2, () => { const n = window.__ns, b = SV[1]; n.tp(b.x + .5, b.y + .2); });
+  await sleep(350); await C2.keyboard.press('KeyE');
+  ok(await wait(H, () => SV[2].heal === SV[1] && SV[1].healProg > .05) && await wait(C1, () => S.healProg > .05), 'Cleo heilt Ben: Fortschritt läuft beim Host und kommt bei Ben an');
+  await ev(H, () => { SV[1].healProg = .99; });
+  ok(await wait(C1, () => S.hp === 2, null, 6000) && await ev(C2, () => window.__ns.stats.heals === 1), 'Ben ist wieder gesund, Cleo bekommt die Heilung gutgeschrieben');
+  // Pause ist online nur eine Überlagerung; der Host läuft auch im Hintergrund-Tab weiter
+  await H.keyboard.press('Escape');
+  const t0 = await ev(H, () => window.__ns.T); await sleep(500);
+  ok(await visible(H, '#pause') && await st(H) === 'play' && (await ev(H, () => window.__ns.T)) > t0 + .3, 'Pause beim Host: Überlagerung, die Simulation läuft weiter');
+  await H.keyboard.press('Escape');
+  await ev(H, () => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); window.requestAnimationFrame = () => 0; document.dispatchEvent(new Event('visibilitychange')); });
+  await sleep(300);
+  const t1 = await ev(H, () => window.__ns.T), g1 = await ev(C1, () => Sync.got); await sleep(1000);
+  const t2 = await ev(H, () => window.__ns.T), g2 = await ev(C1, () => Sync.got);
+  ok(await st(H) === 'play' && t2 - t1 > .8 && g2 - g1 >= 12, `Host-Tab im Hintergrund: Simulation läuft weiter (${(t2 - t1).toFixed(2)} s in 1 s, ${g2 - g1} Schnappschüsse)`);
+  // „Ergebnis" beim Zuschauen: online endet nur die eigene Ansicht bzw. beim Host gar nichts, solange Mitspieler spielen
+  await ev(H, () => { killSurv(S, 'bleed'); });
+  await sleep(200); await ev(H, () => teamGiveUp());
+  ok(await st(H) === 'play' && /Mitspieler/.test(await ev(H, () => toastMsg || '')), 'Host ist raus und drückt „Ergebnis": das Spiel läuft für die anderen weiter');
+  // Mitspieler geht: ein Bot übernimmt
+  await C2.close({ runBeforeUnload: true });
+  ok(await wait(H, () => SV[2].kind === 'bot' && !!SV[2].bot && !!SV[2].ctl, null, 9000), 'Cleo schließt den Tab: beim Host übernimmt ein Bot ihre Figur');
+  const bp = await pos(H, 2); await sleep(2500); const bq = await pos(H, 2);
+  ok(Math.hypot(bp[0] - bq[0], bp[1] - bq[1]) > .5 || await ev(H, () => !!SV[2].work), 'Der Bot spielt weiter (läuft oder arbeitet)');
+  ok(await st(C1) === 'play', 'Ben spielt weiter');
+  // Spielende kommt vom Host
+  await ev(H, () => { for (const v of SV) if (!v.out) escapeSurv(v, gates[0]); });
+  ok(await wait(C1, () => window.__ns.state === 'end', null, 9000) && await wait(H, () => window.__ns.state === 'end', null, 9000), 'Spielende: Host und Ben sehen den Endbildschirm');
+  ok(await ev(C1, () => S.out === 'escaped' && document.querySelector('#endWord').textContent === 'Escaped' && document.querySelectorAll('#teamRes .tr').length === 3), 'Ben: „Escaped", Team-Ergebnis mit 3 Figuren');
+  ok(!errs.length, 'Keine Fehler in der Konsole' + (errs.length ? ': ' + errs.join(' | ') : ''));
+  await ctx.close();
+}
+
 /* ---------- Signalserver ---------- */
 function startServer() {
   const bin = path.join(PEERDIR, 'node_modules/.bin/peerjs');
@@ -274,6 +376,10 @@ function startServer() {
       }
     }
     if (ONLY.includes('c')) await botsFlow(browser);
+    if (ONLY.includes('d')) {
+      await syncFlow(browser, 'd) Synchronisierung im Spiel (BroadcastChannel)', '?net=local#test');
+      if (PEERDIR) { if (!srv) srv = await startServer(); await syncFlow(browser, 'd) Synchronisierung im Spiel (PeerJS)', `?peer=localhost:${PORT}#test`); }
+    }
   } catch (e) { fails++; console.log('  ✗ Abbruch: ' + (e && e.stack || e)); }
   if (srv) srv.kill();
   await browser.close();
