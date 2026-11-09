@@ -27,6 +27,7 @@ if (dir) fs.mkdirSync(dir, { recursive: true });
     window.__t = {
       // Neues Team-Spiel; Killer wartet (ctl), bis ein Szenario ihn freilässt
       fresh(idle = true) {
+        n.Bots.on = false;   // Szenarien steuern die anderen Survivors selbst
         n.startTeam(MAP); n.tick(.05);
         if (idle) this.idleK(); return n;
       },
@@ -507,6 +508,19 @@ if (dir) fs.mkdirSync(dir, { recursive: true });
     const n = window.__ns; n.startGame(); n.tick(.1);
     n.S.hp = 1; n.hitSurvivor(n.S);
     return { ok: n.state === 'caught' && n.mode === 'solo', info: n.state };
+  });
+  // Auf jeder Karte: Wirft jemand eine Palette, während ein Teamkollege in der Lücke steht, wird der nicht eingeklemmt
+  await scen(`[${MAP}] alle Paletten: Teamkollege in der Lücke wird herausgeschoben`, () => {
+    const t = window.__t, n = t.fresh(), S = n.S, A = n.SV[1], bad = [];
+    n.pallets.forEach((pal, i) => {
+      pal.state = 0; S.act = null; A.act = null; A.hp = 2;
+      S.x = pal.cx + pal.ax.x * .8; S.y = pal.cy + pal.ax.y * .8;
+      A.x = pal.cx - pal.ax.x * .1; A.y = pal.cy - pal.ax.y * .1;
+      n.dropPallet(pal, S); n.tick(.3);
+      if (pal.state !== 1 || circleHit(A.x, A.y, A.r - .02) || circleHit(S.x, S.y, S.r - .02)) bad.push(i);
+      pal.state = 0;
+    });
+    return { ok: !bad.length, info: `${n.pallets.length} Paletten, Probleme: ${bad.join(',') || 'keine'}` };
   });
 
   await b.close();

@@ -16,6 +16,7 @@ function readInput() {
   return { x: 0, y: 0, mag: 0, walk: false };
 }
 function updateSurv(dt) {
+  if (MODE === 'team' && S.kind !== 'local') { updateOther(S, dt); return; }   // nur Zuschauer/Simulation: S ist ein Bot
   if (MODE === 'team' && teamSurv(S, dt)) return;
   survTick(S, dt);
   if (S.hp < 2 && !S.hidden) { S.breathT -= dt; if (S.breathT <= 0) { S.breathT = rand(2.5, 4.5); SFX.breath(); } }
@@ -126,6 +127,12 @@ function dropPallet(p, sv = S) {
   const s = Math.abs(al) > .15 ? Math.sign(al) : (kl ? -Math.sign(kl) : 1);
   p.state = 1; stats.pallets++;
   if (Math.abs(al) < .85) { sv.x += p.ax.x * (s * .85 - al); sv.y += p.ax.y * (s * .85 - al); }
+  // Team: Steht ein anderer Überlebender gerade in der Lücke, schiebt ihn die Palette auf seine Seite (sonst klemmt er fest)
+  if (MODE === 'team') for (const v of SV) {
+    if (v === sv || !inPlay(v) || v.carried || v.hung || v.hidden) continue;
+    const va = (v.x - p.cx) * p.ax.x + (v.y - p.cy) * p.ax.y, vl = Math.abs((v.x - p.cx) * p.ax.y - (v.y - p.cy) * p.ax.x);
+    if (Math.abs(va) < .5 + v.r && vl < .5 + v.r) { const vs = Math.abs(va) > .05 ? Math.sign(va) : s; if (v.act && v.act.kind === 'vault') { v.act = null; v.z = 0; } v.x += p.ax.x * (vs * .85 - va); v.y += p.ax.y * (vs * .85 - va); }
+  }
   const klat = Math.abs((K.x - p.cx) * p.ax.y - (K.y - p.cy) * p.ax.x);
   const kBusy = K.act && K.act.kind === 'vault';
   if (!kBusy && Math.abs(kl) < .5 + K.r && klat < .5 + K.r * .5) {

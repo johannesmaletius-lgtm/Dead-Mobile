@@ -79,6 +79,7 @@ function startTeam(mapId = 'schule-team', roster, spawnIdx) {
   K = newKiller(sp.k[0], sp.k[1]); K.lastContact = T;
   resetStats();
   cam.x = S.x; cam.y = S.y; cam.z = 1;
+  if (typeof Bots !== 'undefined') Bots.attach();   // freie Plätze bekommen die Bot-KI (js/bots.js)
   state = 'play';
   uiPlay(false);
 }

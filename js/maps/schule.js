@@ -86,6 +86,8 @@ MAPS.schule = {
 /* Team-Variante (klein, zum Testen): Duo-Aufgabe an der Südwand der Turnhalle, 5 von 7 Punkten nötig */
 MAPS['schule-team'] = Object.assign({}, MAPS.schule, {
   name: 'Schule (klein)', team: true, need: 5,
+  // Bot-Abstimmung (js/bots.js, Bots.cfg): Die kleine Karte hat sehr viele Fenster – Bots nutzen sie auf der Flucht seltener
+  bots: { vault: 2.2, win: 0 },
   grid: MAPS.schule.grid.map((r, y) => y === 20 ? r.slice(0, 30) + 'Y' + r.slice(31, 35) + 'Y' + r.slice(36) : r),
   spawns: [
     { s: [[2.5, 11.5], [10.5, 22.5], [21.5, 26.5]], k: [42.5, 11.5] },
