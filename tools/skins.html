@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8">
+<title>Dead Mobile – Skin-Vorschau</title>
+<!-- Vorschau aller Figuren: lädt die Spielskripte (Spielschleife eingefroren) und zeichnet mit eigenem Canvas.
+     Öffnen per Doppelklick (file://). Zahl im Hash = Kachelgröße in Pixeln, z. B. skins.html#40 -->
+<style>
+  body { margin: 0; background: #07090b; color: #cfd3d6; font: 13px system-ui, sans-serif; }
+  h1 { font-size: 16px; font-weight: 600; margin: 12px 16px 4px; }
+  #pv { display: block; margin: 0 8px; }
+  #portraits { display: flex; gap: 28px; align-items: flex-end; margin: 10px 16px 18px; }
+  #portraits figure { margin: 0; text-align: center; }
+  #portraits img { display: inline-block; margin: 0 3px; vertical-align: bottom; }
+  #portraits figcaption { margin-top: 4px; }
+</style>
+<script>window.__freeze = true;</script>
+</head><body>
+<h1>Skin-Vorschau – alle Richtungen, Gehen, Posen, liegend, verletzt</h1>
+<canvas id="pv"></canvas>
+<div id="portraits"></div>
+<!-- Platzhalter für Elemente, die die Spielskripte beim Laden erwarten -->
+<div hidden>
+  <canvas id="c"></canvas><div id="safe"></div><link id="appIcon"><link id="favIcon">
+  <button id="pauseBtn"></button><div id="tutCard"><div id="tutStep"></div><button id="tutSkip"></button><p id="tutText"></p><div id="tutGoRow"><button id="tutGo"></button></div></div>
+  <section id="title"><button id="play"></button><button id="tutBtn"></button><div id="best"></div><button id="sndT"></button></section>
+  <section id="pause"><button id="resume"></button><button id="restart"></button><button id="sndP"></button></section>
+  <section id="end"><h2 id="endWord"></h2><b id="grade"></b><span id="score"></span><div id="sgrid"></div><div id="endStats"></div><div id="endBest"></div><button id="again"></button></section>
+</div>
+<!-- gleiche Reihenfolge wie in index.html -->
+<script src="../js/core.js"></script>
+<script src="../js/map.js"></script>
+<script src="../js/audio.js"></script>
+<script src="../js/state.js"></script>
+<script src="../js/tutorial.js"></script>
+<script src="../js/survivor.js"></script>
+<script src="../js/tasks.js"></script>
+<script src="../js/killer.js"></script>
+<script src="../js/flow.js"></script>
+<script src="../js/render.js"></script>
+<script src="../js/figures.js"></script>
+<script src="../js/tiles.js"></script>
+<script src="../js/light.js"></script>
+<script src="../js/hud.js"></script>
+<script src="../js/main.js"></script>
+<script>
+'use strict';
+window.__freeze = true;
+const PI = Math.PI;
+// Spalten: Beschriftung, Optionen für drawHuman, Versatz in Kacheln (liegende Figuren ragen zur Seite)
+const COLS = [
+  ['vorn', { face: 0 }], ['hinten', { face: 2 }], ['rechts', { face: 1 }], ['links', { face: 3 }],
+  ['geht vorn 1', { face: 0, moving: true, walk: PI / 2 }], ['geht vorn 2', { face: 0, moving: true, walk: PI * 1.5 }],
+  ['geht hinten', { face: 2, moving: true, walk: PI / 2 }],
+  ['geht rechts 1', { face: 1, moving: true, walk: PI / 2 }], ['geht rechts 2', { face: 1, moving: true, walk: PI * 1.5 }],
+  ['geht links', { face: 3, moving: true, walk: PI / 2 }],
+  ['work vorn', { face: 0, pose: 'work' }], ['work seitl.', { face: 1, pose: 'work' }], ['hang', { face: 0, pose: 'hang' }],
+  ['liegend', { face: 1, lie: PI / 2 }, -.62], ['getragen', { face: 0, lie: -PI / 2, z: .25, moving: true, walk: 1 }, .62],
+  ['verletzt vorn', { face: 0, hurt: true }], ['verletzt hinten', { face: 2, hurt: true }], ['verletzt seitl.', { face: 1, hurt: true }],
+];
+const ROWS = [...SKINS, 'killer'];
+function drawPreview() {
+  const tp = parseFloat(location.hash.slice(1)) || 56;      // Pixel pro Kachel
+  const cw = 1.45, ch = 1.95, lw = 112, hh = 22;            // Zellgröße in Kacheln, Beschriftungsbreite, Kopfzeile
+  const small = 30, sh = 1.75;                              // zweite Zeile in Spielgröße
+  const cv2 = document.getElementById('pv'), dpr = window.devicePixelRatio || 1;
+  const W = lw + COLS.length * cw * tp + 8, Hh = hh + ROWS.length * ch * tp + 26 + sh * small + 10;
+  cv2.width = Math.round(W * dpr); cv2.height = Math.round(Hh * dpr); cv2.style.width = W + 'px'; cv2.style.height = Hh + 'px';
+  const c0 = ctx, T0 = T; ctx = cv2.getContext('2d');
+  try {
+    T = .35;                                                 // feste Zeit für Posen-Animationen
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = '#07090b'; ctx.fillRect(0, 0, W, Hh);
+    ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#9aa3a8';
+    COLS.forEach((c, i) => ctx.fillText(c[0], lw + (i + .5) * cw * tp, 15));
+    const floor = (x, y, w, h, s) => {                       // Linoleum wie im Klassenzimmer
+      for (let j = 0; j * s / 2 < h; j++) for (let i = 0; i * s / 2 < w; i++) {
+        ctx.fillStyle = (i + j) % 2 ? '#2d3431' : '#28302d'; ctx.fillRect(x + i * s / 2, y + j * s / 2, Math.min(s / 2, w - i * s / 2), Math.min(s / 2, h - j * s / 2));
+      }
+      ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.fillRect(x, y, w, h);  // gedämpftes Licht
+    };
+    ROWS.forEach((look, r) => {
+      const y0 = hh + r * ch * tp;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      floor(lw, y0, COLS.length * cw * tp, ch * tp - 4, tp);
+      ctx.textAlign = 'right'; ctx.fillStyle = '#cfd3d6'; ctx.font = '13px system-ui, sans-serif';
+      ctx.fillText(SKIN_NAMES[look] || 'Killer', lw - 10, y0 + ch * tp / 2 + 4);
+      COLS.forEach((c, i) => {
+        ctx.setTransform(dpr * tp, 0, 0, dpr * tp, dpr * (lw + (i + .5 + (c[2] || 0) / cw) * cw * tp), dpr * (y0 + (ch - .22) * tp));
+        drawHuman(0, 0, Object.assign({ look }, c[1]));
+      });
+    });
+    // Spielgröße: alle Figuren nebeneinander in vier Richtungen, gehend
+    const y1 = hh + ROWS.length * ch * tp + 22;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.textAlign = 'right'; ctx.fillStyle = '#cfd3d6';
+    ctx.fillText('Spielgröße', lw - 10, y1 + sh * small / 2 + 4);
+    floor(lw, y1, COLS.length * cw * tp, sh * small, small);
+    let k = 0;
+    for (const look of ROWS) for (const f of [0, 1, 2, 3]) {
+      ctx.setTransform(dpr * small, 0, 0, dpr * small, dpr * (lw + 20 + k * .95 * small + Math.floor(k / 4) * 18), dpr * (y1 + (sh - .2) * small));
+      drawHuman(0, 0, { look, face: f, moving: true, walk: PI / 2 + k, hurt: k % 8 > 5 }); k++;
+    }
+  } finally { ctx = c0; T = T0; }
+  // Porträts (Data-URLs aus skinPortrait) in drei Größen
+  const box = document.getElementById('portraits'); box.innerHTML = '';
+  for (const s of SKINS) {
+    const fig = document.createElement('figure');
+    for (const size of [128, 64, 40]) { const img = new Image(); img.src = skinPortrait(s, size); img.width = img.height = size; fig.appendChild(img); }
+    const cap = document.createElement('figcaption'); cap.textContent = SKIN_NAMES[s]; fig.appendChild(cap); box.appendChild(fig);
+  }
+  document.body.dataset.ready = '1';
+}
+window.addEventListener('load', drawPreview);
+window.addEventListener('hashchange', drawPreview);
+</script>
+</body></html>

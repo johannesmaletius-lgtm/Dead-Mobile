@@ -4,7 +4,7 @@ const TEST = location.hash === '#test';
 const KEY = 'dead-mobile-v1';
 const REDUCED = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
 const $ = s => document.querySelector(s);
-const cv = $('#c'), ctx = cv.getContext('2d');
+const cv = $('#c'); let ctx = cv.getContext('2d');
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const lerp = (a, b, t) => a + (b - a) * t;
