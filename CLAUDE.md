@@ -1,0 +1,49 @@
+# Dead Mobile – Leitfaden für KI-Agenten
+
+Stealth-Horror-Browserspiel (Canvas 2D, Web Audio). Kein Build, keine Abhängigkeiten.
+Es läuft per Doppelklick auf `index.html` (file://). Deshalb gibt es **keine ES-Module**:
+Alle `js/*.js` sind klassische Skripte und teilen sich den globalen Gültigkeitsbereich.
+Die Reihenfolge der `<script>`-Tags in `index.html` ist die Ladereihenfolge.
+
+Plan und Spielregeln für den Mehrspieler-Ausbau: `docs/PLAN.md`. Kartenformat: `docs/KARTEN.md`.
+
+## Dateien (lies nur, was du brauchst)
+| Datei | Inhalt |
+|---|---|
+| `index.html` | Markup (Titel, Pause, Ende, Tutorial-Karte) + Skript-Reihenfolge |
+| `css/style.css` | Gesamtes CSS |
+| `js/core.js` | Hilfsfunktionen (`clamp`, `lerp`, `hash` …), `CFG` (Stellschrauben) |
+| `js/map.js` | Karte (`MAP`, `ROOMS`), Räume/Masken, Objekte (Aufgaben, Paletten, Fenster, Spinde, Haken, Tore), `LAMPS`, `SPAWNS`, Kollision, Sichtlinie, A* (`findPath`) |
+| `js/audio.js` | Web-Audio-Synth `A`, Soundeffekte `SFX`, Verfolgungsmusik |
+| `js/state.js` | Globale Spielzustände (`state`, `S`, `K`, `T` …), Speicherstand, `newSurv`/`newKiller`, `startGame` |
+| `js/tutorial.js` | Spielbares Tutorial (Schritte `TSTEPS`) |
+| `js/survivor.js` | Eingabe lesen, Survivor-Bewegung, Aktionen (Palette, Fenster, Spind) |
+| `js/tasks.js` | Aufgaben + Quick-Time-Events (Aggregat, Sicherung, Funk, Ventil) |
+| `js/killer.js` | Killer-KI (Sicht, Patrouille, Suche, Verfolgung, Ausfallschritt, Lärm) |
+| `js/flow.js` | Treffer, Erwischt-/Haken-Sequenz, Sieg, Endbildschirm, `step()` (Welt-Update), Kamera |
+| `js/render.js` | Canvas-Setup, Grundformen, Boden vorzeichnen, Raum-Pfade fürs Licht |
+| `js/figures.js` | Figuren zeichnen (Survivor-Look, Killer) |
+| `js/tiles.js` | Kacheln zeichnen (Wände, Möbel, Aufgaben, Paletten, Tore, Auto) |
+| `js/light.js` | Licht, Leuchten, `render()` setzt das Bild zusammen |
+| `js/hud.js` | Bildschirm-Ebenen, HUD, Aktionsknopf, QTE-Anzeige |
+| `js/main.js` | Eingabe (Touch/Tastatur), Bildschirme, Start, Spielschleife, Test-API `window.__ns` |
+
+## Regeln für Änderungen
+- Code, der beim Laden ausgeführt wird, darf nur nutzen, was in **früher geladenen** Dateien steht.
+  Funktionen, die erst zur Laufzeit aufgerufen werden, dürfen alles nutzen.
+- Neue Datei: `<script src="js/…">` an der passenden Stelle in `index.html` eintragen.
+- Keine globalen Namen, die mit `window`-Eigenschaften kollidieren (`name`, `status`, `top`, `parent` …).
+- Stil beibehalten: kompakt, deutsche Kommentare und Spieltexte, Einheiten in Kacheln, Zeit in Sekunden.
+  Die Simulation läuft fest mit 60 Hz in `step(dt)`, gezeichnet wird nur in `render()`.
+- **Solo-Modus und Tutorial dürfen sich nicht verändern.** Vor jedem Commit den Regressionstest laufen lassen.
+
+## Testen
+```bash
+# Ablauf + Screenshots + Fehler:
+NODE_PATH="$(npm root -g)" node tools/regress.js index.html /tmp/bilder
+# Vergleich mit dem letzten Commit (Solo/Tutorial müssen IDENTISCH bleiben):
+git worktree add /tmp/alt HEAD && NODE_PATH="$(npm root -g)" node tools/regress.js /tmp/alt/index.html index.html
+```
+Mit `#test` in der URL wird nichts gespeichert. `window.__ns` ist die Test-API (`startGame`, `tick(sek)`,
+`tp`, `ktp`, `finish`, `caught`, `down`/`up`, `keys` …). Feste Zufallszahlen und eine abgeschaltete
+`requestAnimationFrame`-Schleife machen Läufe reproduzierbar (siehe `tools/regress.js`).
