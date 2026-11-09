@@ -23,7 +23,7 @@ Plan und Spielregeln für den Mehrspieler-Ausbau: `docs/PLAN.md`. Kartenformat: 
 | `js/killer.js` | Killer-KI (Sicht, Patrouille, Suche, Verfolgung, Ausfallschritt, Lärm) |
 | `js/flow.js` | Treffer, Erwischt-/Haken-Sequenz, Sieg, Endbildschirm, `step()` (Welt-Update), Kamera |
 | `js/render.js` | Canvas-Setup, Grundformen, Boden vorzeichnen, Raum-Pfade fürs Licht |
-| `js/figures.js` | Figuren zeichnen (Survivor-Look, Killer) |
+| `js/figures.js` | Figuren zeichnen: Skins `SKINS` (`cop`, `medic`, `janitor`), `SKIN_NAMES`, Killer, `skinPortrait(skin, px)`; Vorschau `tools/skins.html` |
 | `js/tiles.js` | Kacheln zeichnen (Wände, Möbel, Aufgaben, Paletten, Tore, Auto) |
 | `js/light.js` | Licht, Leuchten, `render()` setzt das Bild zusammen |
 | `js/hud.js` | Bildschirm-Ebenen, HUD, Aktionsknopf, QTE-Anzeige |
