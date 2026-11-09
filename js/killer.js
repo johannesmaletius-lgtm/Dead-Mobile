@@ -2,7 +2,7 @@
 /* Dead Mobile – Killer-KI: Sicht, Pfade, Patrouille, Suche, Verfolgung, Aktionen, Lärm */
 /* ================= Killer-KI ================= */
 function killerSees(sv = S) {
-  if (state !== 'play' || !sv || sv.hidden || sv.ghost || sv.out || sv.carried || sv.hung) return false;
+  if (state !== 'play' || !sv || sv.hidden || sv.ghost || sv.out || sv.carried || sv.hung || sv.hp <= 0) return false;
   if (!(K.mask & sv.mask)) return false;
   const dx = sv.x - K.x, dy = sv.y - K.y, d = hyp(dx, dy);
   if (d > CFG.viewR) return false;
@@ -15,10 +15,10 @@ function killerVisible() {
   if (!v || v.ghost) return false;
   return (K.mask & v.mask) !== 0;
 }
-/* Wen sucht er auf Patrouille? Den nächsten Überlebenden, der noch frei herumläuft */
+/* Wen sucht er auf Patrouille? Den nächsten Überlebenden, der noch frei herumläuft (Team: nicht den Ignorierten) */
 function huntTarget() {
   let b = S, bd = 1e9;
-  for (const sv of SV) if (inPlay(sv) && !sv.carried && !sv.hung) { const d = hyp(sv.x - K.x, sv.y - K.y); if (d < bd) { bd = d; b = sv; } }
+  for (const sv of SV) if (inPlay(sv) && !sv.carried && !sv.hung && (MODE !== 'team' || (sv.hp > 0 && !kIgnores(sv)))) { const d = hyp(sv.x - K.x, sv.y - K.y); if (d < bd) { bd = d; b = sv; } }
   return b;
 }
 function kSpeed() {
@@ -105,6 +105,7 @@ function startSearch(x, y, lockerChance) {
   if (!K.act) K.act = { kind: 'look', t: 0, dur: 1, base: K.dir };
 }
 function startChase(sv) {
+  if (MODE === 'team' && K.carry) return;
   sv = sv || K.focus || S;
   K.target = sv; K.mode = 'chase'; K.aware = 1; K.chaseT = 0; K.blood = 0; K.seenT = T; K.lastSeen = { x: sv.x, y: sv.y }; K.trailT = T;
   K.path = null; K.goal = null;
@@ -124,10 +125,11 @@ function pickPatrol() {
     const quiet = T - K.lastContact;
     const pHunt = quiet > 45 ? .6 : quiet > 20 ? .35 : .12;
     if (Math.random() < pHunt) r = firstBit(huntTarget().mask);
+    if (MODE === 'team' && T < K.campUntil && r === K.campRoom) r = 0; // kein Camping am Haken
   }
   if (!r) {
     const ws = []; let tot = 0;
-    for (let i = 1; i <= NR; i++) { let w = i === kr || !roomFloor[i] || !roomFloor[i].length ? 0 : 1; if (w) for (const t of tasks) if (t.room === i && !t.done) w += .6 + t.prog * 4; ws.push(w); tot += w; }
+    for (let i = 1; i <= NR; i++) { let w = i === kr || !roomFloor[i] || !roomFloor[i].length || (MODE === 'team' && T < K.campUntil && i === K.campRoom) ? 0 : 1; if (w) for (const t of tasks) if (t.room === i && !t.done) w += .6 + t.prog * 4; ws.push(w); tot += w; }
     let v = Math.random() * tot; for (let i = 1; i <= NR; i++) { v -= ws[i - 1]; if (v <= 0) { r = i; break; } }
     if (!r) r = MAPDEF.patrolFallback || firstBit(K.mask) || 1;
   }
@@ -139,10 +141,12 @@ function updateKiller(dt) {
   const m = mask[I(K.x | 0, K.y | 0)]; if (m) K.mask = m;
   if (K.ctl) { if (K.act) runAct(dt); else K.ctl(dt); return; }
   if (K.moving) { K.stepT -= dt; if (K.stepT <= 0) { K.stepT = K.mode === 'chase' ? .28 : .42; if (state === 'play' && killerVisible()) SFX.kstep(); } }
+  // Team: Liegende aufheben (Vorrang), tragen, aufhängen
+  if (MODE === 'team' && killerTeam(dt)) return;
   // Wen sieht er? Fokus = der Nächste (das laufende Jagdziel zählt 3 Kacheln näher)
   const seenL = SV.length === 1 ? (killerSees(S) ? [S] : []) : SV.filter(sv => killerSees(sv));
   let foc = null, fd = 1e9;
-  for (const sv of seenL) { const d = hyp(sv.x - K.x, sv.y - K.y) - (sv === K.target && K.mode === 'chase' ? 3 : 0); if (d < fd) { fd = d; foc = sv; } }
+  for (const sv of seenL) { const d = hyp(sv.x - K.x, sv.y - K.y) - (sv === K.target && K.mode === 'chase' ? 3 : 0) + (MODE === 'team' && kIgnores(sv) ? 6 : 0); if (d < fd) { fd = d; foc = sv; } }
   const sees = !!foc;
   K.focus = foc;
   if (sees) K.lastContact = T;
@@ -153,6 +157,7 @@ function updateKiller(dt) {
       rate *= foc.running ? 1.7 : foc.moving ? 1 : .7;
       if (K.mode !== 'patrol') rate *= 1.35;
       if (endgame) rate *= 1.4;
+      if (MODE === 'team') rate *= awareMul(foc, d);
       K.aware += rate * dt;
       if (K.aware >= 1 && !(K.act && ['stun', 'vault', 'break'].includes(K.act.kind))) startChase(foc);
     } else K.aware = Math.max(0, K.aware - dt * .5);
@@ -163,6 +168,7 @@ function updateKiller(dt) {
     if (hyp(K.x - p.cx, K.y - p.cy) < 6.5 && hyp(tg.x - p.cx, tg.y - p.cy) < 6.5) p.loopT = (p.loopT || 0) + dt;
     else p.loopT = Math.max(0, (p.loopT || 0) - dt * .2);
   }
+  if (MODE === 'team' && huntTick(dt)) return;
   if (K.act) {
     if (K.act.kind === 'look' && K.aware > .3) K.act = null;
     else { runAct(dt); return; }
@@ -175,7 +181,8 @@ function updateKiller(dt) {
   K.scanT -= dt;
   if (K.scanT <= 0) {
     K.scanT = .25;
-    const mk = newestMark(K, 6.5, Math.max(K.trailT, T - CFG.markLife));
+    let mk = newestMark(K, 6.5, Math.max(K.trailT, T - CFG.markLife));
+    if (mk && MODE === 'team' && (campBlock(mk.x, mk.y) || (K.ignore && T < K.ignore.until && mk.o === K.ignore.sv.id) || (K.mode === 'investigate' && K.inv.kind === 'hunt' && T - K.inv.t < 4))) mk = null;
     if (mk && !(K.mode === 'investigate' && K.inv.kind === 'noise' && T - K.inv.t < 3)) { K.trailT = mk.t; investigate(mk.x, mk.y, 'trail'); }
   }
   if (K.mode === 'patrol') {
@@ -249,7 +256,7 @@ function runAct(dt) {
       break;
     case 'locker':
       K.moving = false;
-      if (!a.opened && p > .45) { a.opened = true; a.L.anim = 1; SFX.locker(); const hv = SV.find(v => v.hidden === a.L); if (hv && state === 'play') { if (TUT) hitSurvivor(hv); else caught(hv); return; } }
+      if (!a.opened && p > .45) { a.opened = true; a.L.anim = 1; SFX.locker(); const hv = SV.find(v => v.hidden === a.L); if (hv && state === 'play') { if (TUT) hitSurvivor(hv); else if (MODE === 'team') pickUp(hv); else caught(hv); return; } }
       break;
     case 'vault': K.x = lerp(a.fx, a.tx, p); K.y = lerp(a.fy, a.ty, p); K.z = Math.sin(p * Math.PI) * .45; K.moving = true; K.walk += dt * 5; break;
     case 'break':
@@ -257,6 +264,8 @@ function runAct(dt) {
       if (!a.done && p >= 1) { a.done = true; a.p.state = 2; SFX.crack(); shake(.2); for (let i = 0; i < 18; i++) parts.push({ x: a.p.cx, y: a.p.cy, z: .2, vx: rand(-2, 2), vy: rand(-1.5, 1.5), vz: rand(1, 3), g: 8, life: rand(.4, .9), max: .9, col: '120,90,55', sz: .06 }); }
       break;
     case 'stun': case 'wipe': K.moving = false; break;
+    case 'pick': K.moving = false; if (!a.done && a.t >= a.dur) { a.done = true; if (isDowned(a.sv)) pickUp(a.sv); } break;
+    case 'hook': K.moving = false; if (!a.done && a.t >= a.dur) { a.done = true; if (K.carry === a.sv) hookSurv(a.sv, a.h); } break;
     case 'lunge': {
       const tg = K.target || S, want = Math.atan2(tg.y - K.y, tg.x - K.x);
       K.dir = turn(K.dir, want, CFG.lungeTurn * dt);
@@ -264,7 +273,7 @@ function runAct(dt) {
       moveEnt(K, Math.cos(K.dir) * lv * dt, Math.sin(K.dir) * lv * dt);
       K.moving = true; K.walk += dt * 12;
       // Getroffen wird, wer im Weg steht – meist das Ziel
-      if (state === 'play') for (const v of SV) if (!v.hidden && !v.ghost && !v.out && !v.carried && !v.hung && hyp(v.x - K.x, v.y - K.y) < CFG.hitR && losClear(K.x, K.y, v.x, v.y)) { hitSurvivor(v); return; }
+      if (state === 'play') for (const v of SV) if (!v.hidden && !v.ghost && !v.out && !v.carried && !v.hung && v.hp > 0 && hyp(v.x - K.x, v.y - K.y) < CFG.hitR && losClear(K.x, K.y, v.x, v.y)) { hitSurvivor(v); return; }
       if (a.t >= a.dur) { SFX.whiff(); K.act = { kind: 'recover', t: 0, dur: CFG.recover }; }
       return;
     }
@@ -275,6 +284,7 @@ function runAct(dt) {
 function noise(x, y, R, loud) {
   noises.push({ x, y, t: T, loud });
   if (state !== 'play') return;
+  if (MODE === 'team' && (K.carry || K.mode === 'fetch' || campBlock(x, y))) return; // trägt/holt gerade, kein Camping
   if (K.mode === 'chase') { K.lastSeen = { x, y }; if (R >= 8) K.seenT = Math.max(K.seenT, T - CFG.track + .8); return; }
   if (hyp(K.x - x, K.y - y) <= R) { investigate(x, y, 'noise'); if (loud) K.aware = Math.max(K.aware, .15); }
 }

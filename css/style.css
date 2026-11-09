@@ -80,3 +80,29 @@ body{color:var(--chalk);font-family:var(--f-type);-webkit-user-select:none;user-
 @keyframes turnphone{0%,18%{transform:rotate(0)}48%,82%{transform:rotate(-90deg)}100%{transform:rotate(0)}}
 @media (orientation:portrait) and (pointer:coarse){#rotate{display:flex}}
 @media (prefers-reduced-motion: reduce){.btn{transition:none}#rotate svg{animation:none;transform:rotate(-90deg)}}
+/* Team: Zuschauen und Ergebnis pro Survivor */
+#specBar{position:fixed;z-index:3;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 50px);
+  display:flex;align-items:center;gap:10px;padding:5px 6px 5px 13px;border-radius:999px;white-space:nowrap;
+  background:rgba(6,7,12,.84);border:1px solid rgba(235,231,220,.22);box-shadow:0 8px 26px rgba(0,0,0,.5);font-size:13px}
+#specBar>svg{width:19px;height:19px;flex:none;fill:none;stroke:var(--aura);stroke-width:2}
+#specBar>span{display:flex;flex-direction:column;line-height:1.15}
+#specBar small{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--chalk2)}
+#specBar small:empty{display:none}
+#specBar .rnd{width:36px;height:36px;flex:none}
+#specBar .rnd svg{width:19px;height:19px}
+#specBar .pill.gold{min-height:36px;font-size:14px;padding:8px 16px}
+/* Schmal: Banner nach unten (oben ist kein Platz neben der Team-Spalte) */
+@media (max-width:780px){#specBar{top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 14px)}}
+.tres{display:flex;gap:clamp(12px,3vw,30px);justify-content:center;flex-wrap:wrap;margin:-4px 0 -2px}
+.tres .tr{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:84px}
+.tres .tp{width:clamp(38px,9vh,54px);height:clamp(38px,9vh,54px);border-radius:50%;overflow:hidden;display:grid;place-items:center;
+  border:2px solid rgba(235,231,220,.35);background:#11131b}
+.tres .tp img{width:100%;height:100%;display:block}
+.tres .tp span{width:100%;height:100%;display:grid;place-items:center;font:700 22px var(--f-chalk);color:var(--chalk)}
+.tres b{font-weight:400;font-size:14px;color:var(--chalk)}
+.tres i{font-style:normal;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--chalk2)}
+.tres .escaped .tp{border-color:#7dff9a;box-shadow:0 0 12px rgba(125,255,160,.35)}
+.tres .escaped i{color:#7dff9a}
+.tres .dead .tp{border-color:rgba(195,18,31,.8);filter:grayscale(.85) brightness(.7)}
+.tres .dead i{color:var(--stain)}
+.tres .me b{color:var(--aura)}

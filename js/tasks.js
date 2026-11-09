@@ -9,7 +9,26 @@ function newQTE(t) {
   if (t.type === 'fuse') { q.hits = Math.round(t.prog * 3); q.pos = 0; q.v = 1; fuseZone(q); }
   if (t.type === 'radio') { q.round = t.prog >= .5 ? 1 : 0; radioSeq(q); }
   if (t.type === 'valve') { q.p = .45; q.hold = false; q.bc = .5; }
+  if (t.type === 'duo') { q.next = rand(1.2, 2.6); q.check = null; q.warn = 0; }
   return q;
+}
+/* QTE nur mit Skill-Checks (Heilen: o = Verletzter, Duo: o = Aufgabe) – der Fortschritt läuft woanders (js/rules.js) */
+function newCheckQTE(type, o) { return { task: type === 'duo' ? o : null, heal: type === 'heal' ? o : null, type, t: 0, lock: 0, flash: 0, ok: 0, great: 0, next: rand(1.4, 2.8), check: null, warn: 0 }; }
+const checkProg = q => q.type === 'heal' ? q.heal.healProg : q.task.prog;
+function checkTick(q, dt, active) {
+  if (!active) { q.check = null; q.warn = 0; return; }
+  if (q.check) { q.check.a += q.check.v * dt; if (q.check.a > TAU) { q.check = null; checkMiss(q); q.next = rand(2.2, 4.2); } }
+  else if (q.warn > 0) { q.warn -= dt; if (q.warn <= 0) q.check = { a: 0, v: TAU / 1.15, zs: rand(1.9, 4.9), zw: .9, gw: .22 }; }
+  else { q.next -= dt; if (q.next <= 0 && checkProg(q) < .96) { q.warn = .55; SFX.ding(); } }
+}
+function checkMiss(q) { if (q.type === 'heal') healFail(S, q.heal); else taskFail(S, q.task); }
+function checkPress(q) {
+  if (!q.check) return;
+  const c = q.check, rel = c.a - c.zs;
+  if (rel >= 0 && rel <= c.gw) { if (q.type === 'heal') q.heal.healProg = Math.min(.99, q.heal.healProg + .03); else q.task.prog = Math.min(.99, q.task.prog + .02); SFX.great(); stats.checks++; q.ok = .4; q.great = .6; }
+  else if (rel >= 0 && rel <= c.zw) { SFX.good(); stats.checks++; q.ok = .3; }
+  else checkMiss(q);
+  q.check = null; q.next = rand(2, 4.5);
 }
 function fuseZone(q) { const k = Math.min(2, q.hits); q.zw = [.24, .18, .13][k]; q.zc = rand(.15 + q.zw / 2, .85 - q.zw / 2); q.spd = [1.15, 1.5, 1.9][k]; }
 function radioSeq(q) { const n = q.round ? 4 : 3; q.seq = []; for (let i = 0; i < n; i++) { let d; do d = (Math.random() * 4) | 0; while (i && d === q.seq[i - 1]); q.seq.push(d); } q.phase = 'show'; q.st = -.45; q.inp = 0; q.shown = -1; }
@@ -40,8 +59,8 @@ function updateQTE(dt) {
       else if (Math.abs(q.p - q.bc) < .13) t.prog = Math.min(1, t.prog + dt / CFG.valveTime);
     }
     if (Math.random() < dt * 8) parts.push({ x: t.cx + rand(-.2, .2), y: t.cy, z: .6, vx: rand(-.3, .3), vy: rand(-.2, .1), vz: rand(.6, 1.2), g: -.5, life: .8, max: .8, col: '200,205,210', sz: .09, fade: 1 });
-  }
-  if (t.prog >= 1) complete(t);
+  } else if (q.type === 'heal' || q.type === 'duo') checkTick(q, dt, q.type === 'heal' || duoBoth(t));
+  if (t && t.prog >= 1) complete(t);
 }
 function qteDown() {
   const q = Q; if (!q || q.lock > 0) return;
@@ -56,6 +75,7 @@ function qteDown() {
     if (Math.abs(q.pos - q.zc) <= q.zw / 2) { q.hits++; stats.checks++; SFX.good(); q.ok = .35; if (q.hits >= 3) q.task.prog = 1; else fuseZone(q); }
     else { q.hits = Math.max(0, q.hits - 1); fail(q.task, 0); fuseZone(q); }
   } else if (q.type === 'valve') q.hold = true;
+  else if (q.type === 'heal' || q.type === 'duo') checkPress(q);
 }
 function qteUp() { if (Q && Q.type === 'valve') Q.hold = false; }
 function qteArrow(d) {
@@ -69,7 +89,7 @@ function qteArrow(d) {
 function fail(t, pen) {
   t.prog = Math.max(0, t.prog - pen);
   if (Q) { Q.lock = .7; Q.flash = .6; }
-  ({ gen: SFX.bang, fuse: SFX.spark, radio: SFX.staticB, valve: SFX.steam })[t.type]();
+  ({ gen: SFX.bang, fuse: SFX.spark, radio: SFX.staticB, valve: SFX.steam, duo: SFX.spark })[t.type]();
   const col = t.type === 'valve' ? '215,220,225' : t.type === 'radio' ? '160,190,255' : '255,200,90';
   for (let i = 0; i < 26; i++) parts.push({ x: t.cx, y: t.cy, z: .5, vx: rand(-3, 3), vy: rand(-2, 2), vz: rand(1, 4), g: t.type === 'valve' ? -.5 : 9, life: rand(.3, .8), max: .8, col, sz: t.type === 'valve' ? .12 : .05, fade: t.type === 'valve' ? 1 : 0 });
   shake(.4); S.flinch = .45; flash = .35; flashCol = '255,120,40';

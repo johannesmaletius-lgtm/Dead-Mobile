@@ -5,6 +5,7 @@ function hitSurvivor(sv = S) {
   if (state !== 'play') return;
   if (sv.hp <= 1 && !TUT) { if (MODE === 'team') downSurv(sv); else caught(sv); return; }
   const wasHurt = sv.hp <= 1;
+  if (MODE === 'team') { clearInteract(sv); K.hunt.t = 0; }
   if (sv.hidden) { sv.x = sv.hidden.front.x; sv.y = sv.hidden.front.y; sv.hidden.known = false; sv.hidden = null; }
   if (sv.work) { if (sv === S) stopWork(); else sv.work = null; }
   if (sv.act && sv.act.kind !== 'vault') { sv.act = null; sv.z = 0; resolve(sv); }
@@ -57,14 +58,14 @@ function win(g) {
   save.wins++; if (!save.best || t < save.best) save.best = t; persist();
   $('#pauseBtn').hidden = true;
 }
-function showEnd(won) {
+function showEnd(won, extra = 0) {
   state = 'end';
   const w = $('#endWord'); w.textContent = won ? 'Escaped' : 'Sacrificed'; w.className = 'logo ' + (won ? 'win' : 'lose');
   endWon = won;
   const dur = Math.max(1, stats.end - stats.t0), tries = stats.checks + stats.fails;
   // Bewertung: Flucht, Skill-Checks, gewonnene Chases, Betäubungen, wenig Chase-Zeit
   const score = Math.round(Math.min(100, (won ? 35 : 0) + (tries ? 20 * stats.checks / tries : 0) + Math.min(stats.chasesWon, 4) * 5
-    + Math.min(stats.stuns, 3) * 5 + 10 * Math.max(0, 1 - stats.chase / dur * 2)));
+    + Math.min(stats.stuns, 3) * 5 + 10 * Math.max(0, 1 - stats.chase / dur * 2) + extra));
   const g = score >= 90 ? 'S' : score >= 75 ? 'A' : score >= 60 ? 'B' : score >= 40 ? 'C' : 'D';
   $('#grade').textContent = g; $('#grade').className = score >= 60 ? '' : 'lo'; $('#score').textContent = score + ' / 100';
   const rows = [['Chase Time', fmt(stats.chase)], ['Escapes', save.wins], ['Pallets Thrown', stats.pallets], ['Windows Vaulted', stats.vaults],
@@ -78,25 +79,7 @@ function showEnd(won) {
   setTimeout(() => { try { $('#again').focus({ preventScroll: true }); } catch (e) {} }, 50);
 }
 const gateSvg = '<svg viewBox="0 0 24 24"><path d="M3 21V5h2v16zM19 21V5h2v16zM3 4h18v2H3zM8 7h1.5v14H8zM11.3 7h1.5v14h-1.5zM14.6 7h1.5v14h-1.5z"/></svg>';
-/* Team-Modus – Platzhalter bis Phase 2 (Regeln): am Boden / entkommen */
-function downSurv(sv) {
-  sv.hp = 0; sv.out = 'dead'; sv.work = null; sv.act = null;
-  if (sv.hidden) { sv.hidden = null; }
-  if (sv === S) { Q = null; toast('Erwischt!'); }
-  K.act = { kind: 'wipe', t: 0, dur: CFG.wipe }; K.mode = 'patrol'; K.goal = null; K.aware = 0;
-  teamCheckEnd();
-}
-function escapeSurv(sv, g) {
-  sv.out = 'escaped'; sv.work = null; sv.act = null;
-  if (sv === S) { Q = null; SFX.win(); toast('Entkommen!'); }
-  teamCheckEnd();
-}
-function teamCheckEnd() {
-  if (state !== 'play' || SV.some(v => !v.out)) return;
-  stats.end = T; const won = S.out === 'escaped';
-  if (won) { save.wins++; persist(); }
-  showEnd(won);
-}
+/* Team-Modus: am Boden, Tragen, Haken, Entkommen, Team-Ende → js/rules.js */
 const fmt = s => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 
 /* ================= Welt-Update ================= */
@@ -104,12 +87,13 @@ function shake(v) { cam.sh = Math.max(cam.sh, REDUCED ? v * .25 : v); }
 function step(dt) {
   if (slowT > 0) { slowT -= dt; dt *= .3; }
   T += dt;
-  if (state === 'play' && K && K.mode === 'chase') stats.chase += dt;
+  if (state === 'play' && K && K.mode === 'chase' && (MODE !== 'team' || K.target === S)) stats.chase += dt;
   if (state === 'play') {
     updateSurv(dt);
     if (SV.length > 1) for (const sv of SV) if (sv !== S) updateOther(sv, dt);
     if (Q && state === 'play') updateQTE(dt);
     if (state === 'play') updateKiller(dt);
+    if (state === 'play' && MODE === 'team') teamStep(dt);
     if (state === 'play' && TUT) tutUpdate(dt);
     actNow = state === 'play' ? computeAction() : null;
   } else if (state === 'caught') updateSeq(dt);
@@ -149,9 +133,11 @@ function updateCamera(dt) {
     if (q.phase === 'hit' || q.phase === 'carry') { tx = K.x; ty = K.y - .5; tz = 1.15; }
     else { tx = h.cx + .2; ty = h.cy + .1; tz = 2.1; }
   } else {
-    tx = S.x; ty = S.y - .4;
-    if (S.work) { const portrait = VH > VW; ty += portrait ? 2.2 : 1.6; }
+    const V = viewer();
+    tx = V.x; ty = V.y - .4;
+    if (V.work || (V === S && S.heal)) { const portrait = VH > VW; ty += portrait ? 2.2 : 1.6; }
     if (K.mode === 'chase' && state === 'play') tz = .9;
+    if (MODE === 'team' && state === 'play') { if (V.hung) { ty -= 1.6; tz = 1.25; } else if (V.hp <= 0 && !V.out) tz = 1.12; }
   }
   const k = 1 - Math.exp(-dt * (state === 'caught' ? 3 : 6));
   cam.x = lerp(cam.x, tx, k); cam.y = lerp(cam.y, ty, k); cam.z = lerp(cam.z, tz, 1 - Math.exp(-dt * 2.5));
@@ -162,8 +148,9 @@ function updateCamera(dt) {
   }
 }
 function updateHeart(dt) {
-  if (state === 'play' && S && !S.ghost) {
-    const d = hyp(S.x - K.x, S.y - K.y);
+  const V = viewer();
+  if (state === 'play' && V && !V.ghost) {
+    const d = hyp(V.x - K.x, V.y - K.y);
     terror = clamp(1 - (d - 2) / 12, 0, 1);
     if (terror > 0 && T >= hbNext) { SFX.heart(.25 + .75 * terror); hbPulse = 1; hbNext = T + lerp(1.15, .42, terror); }
   } else terror = Math.max(0, terror - dt);

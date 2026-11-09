@@ -22,6 +22,7 @@ Plan und Spielregeln für den Mehrspieler-Ausbau: `docs/PLAN.md`. Kartenformat: 
 | `js/tasks.js` | Aufgaben + Quick-Time-Events (Aggregat, Sicherung, Funk, Ventil) |
 | `js/killer.js` | Killer-KI (Sicht, Patrouille, Suche, Verfolgung, Ausfallschritt, Lärm) |
 | `js/flow.js` | Treffer, Erwischt-/Haken-Sequenz, Sieg, Endbildschirm, `step()` (Welt-Update), Kamera |
+| `js/rules.js` | Team-Regeln: Boden, Tragen, Haken, Retten, Heilen, Zappeln, Duo, Killer-Teamteil, Team-Ende, Zuschauen |
 | `js/render.js` | Canvas-Setup, Grundformen, Boden vorzeichnen, Raum-Pfade fürs Licht |
 | `js/figures.js` | Figuren zeichnen (Survivor-Look, Killer) |
 | `js/tiles.js` | Kacheln zeichnen (Wände, Möbel, Aufgaben, Paletten, Tore, Auto) |
@@ -38,8 +39,25 @@ Plan und Spielregeln für den Mehrspieler-Ausbau: `docs/PLAN.md`. Kartenformat: 
   letzten Parameter: `dropPallet(p, sv)`, `vaultOver(o, isWin, sv)`, `hide(L, sv)`, `unhide(sv)`, `hitSurvivor(sv)`.
 - Killer: `K.target` (Jagdziel), `K.focus` (gerade gesehen), `killerSees(sv)`, `huntTarget()`.
 - Aufgaben haben `points` (Duo = 2, `t.stations`), Tore öffnen bei `taskPoints() >= NEED`.
-- Platzhalter für Phase 2 in `js/flow.js`: `downSurv`, `escapeSurv`, `teamCheckEnd`.
+- Team-Regeln (Phase 2) stehen in `js/rules.js` (siehe unten).
 - `viewer()` (wessen Sicht), `isWorked(t)`, `skinOf(sv)`, `inPlay(sv)` stehen in `js/state.js`.
+
+## Team-Regeln (Phase 2, `js/rules.js`)
+Alles wirkt nur mit `MODE === 'team'`. Kopfkommentar in `js/rules.js` = vollständige Schnittstelle.
+- **Zustandswechsel** (nur über diese Funktionen, fürs Netz): `downSurv(sv)`, `pickUp(sv)`, `dropCarried('wiggle'|'pallet')`,
+  `hookSurv(sv, h)`, `unhookSurv(sv, retter)`, `healDone(sv)`, `escapeSurv(sv, tor)`, `killSurv(sv, 'hook'|'bleed'|'mori')`, `teamCheckEnd()`.
+- **Effekte** getrennt: `fx(art, sv, extra)` → `FX[art]` (Ton, Partikel; Flash/Zeitlupe/starkes Shake nur für `S`).
+- **Bots (Phase 3)**, für jeden Survivor, ohne QTE: `startWorkFor(sv, t, station)`, `stopWorkFor(sv)`, `workStep(sv, t, dt, skill)`,
+  `duoStation(t, sv)`, `canHeal`/`healStep(heiler, ziel, dt, skill)`, `canUnhook`/`unhookStep(retter, ziel, dt)`, `wiggle(sv)`,
+  `survSpeed(sv, rennen)`, `isFree`, `isDowned`, `hookBusy`. `sv.ctl` läuft auch am Boden/getragen/am Haken.
+- **Felder Survivor:** `hp` 2/1/0, `carried`, `hung`, `out`, `hookN`, `hookProg` (0–1, ab 0,5 Kampfphase), `unhookProg`, `healProg`,
+  `wiggle`, `heal`/`unhook` (wen er gerade heilt/rettet), `healedT`, `outT`, `leave`, `spec`.
+  **Killer:** `carry`, `hookGoal`, `campUntil`/`campRoom`, `hunt {sv, t, last}` (40-s-Regel), `ignore {sv, until}`, Modi `'fetch'`/`'carry'`.
+- Eigener Spieler: Heilen = antippen, dann Skill-Checks (QTE `'heal'`), Bewegen bricht ab; Retten = Aktion **halten** (`actHeld`);
+  getragen = Aktion hämmern; Duo-Station nach Nähe (`actNow.st`). Am Boden kriecht `survMove` automatisch mit `CFG.crawl`.
+- Zuschauen: `viewer()` zeigt nach kurzem Abschied einen Teamkollegen (`S.spec`); Banner `#specBar`, Knopf „Ergebnis" → `teamGiveUp()`
+  (offline: Ende; das Netz darf die Funktion überschreiben). Ende: `showTeamEnd()` mit `#teamRes`. Stellschrauben in `CFG` (`crawl` … `duoTime`).
+- Test: `NODE_PATH="$(npm root -g)" node tools/teamtest.js [bildordner]` (Szenarien PASS/FAIL, Screenshots).
 
 ## Karten prüfen und importieren
 `node tools/mapcheck.js js/maps/schule.js` prüft Karten. `node tools/mapcheck.js antwort.md --id name --write`
