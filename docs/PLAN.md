@@ -11,8 +11,8 @@ liest nur `CLAUDE.md`, diesen Plan und die Dateien seines Auftrags.
 | 1 | Claude (Koordinator) | – | **Fundament:** Karten-Lader (mehrere Karten), Liste von Survivors statt einem `S`, Bewegung/Pfadsuche für beliebige Figuren, Kartenprüfer `tools/mapcheck.js`, Team-Variante der Schule zum Testen | fast alle |
 | 1 ∥ | Agent „Skins" | Opus | 3 Survivor-Skins + Porträt-Funktion für Menü/HUD | `js/figures.js` |
 | 2 | Agent „Regeln" | Opus | Boden/Tragen/Haken/Heilen/Retten/Zappeln, Paletten-Stun lässt fallen, Duo-Aufgabe, Killer-KI für 3 Ziele, 40-s-Regel, Team-Ende, Zuschauen, Team-HUD | `survivor`, `killer`, `flow`, `tasks`, `hud`, neu `rules.js` |
-| 3 | Agent „Bots" | Opus | KI-Überlebende füllen freie Plätze | neu `js/bots.js` |
-| 3 ∥ | Agent „Netz" | Opus | Online-Mehrspieler (PeerJS), Lobby, Synchronisierung | neu `js/net.js`, Lobby-UI |
+| 3 | Agent „Bots" | Opus | KI-Überlebende füllen freie Plätze | erledigt: `js/bots.js`, `tools/botsim.js` |
+| 3 ∥ | Agent „Netz" | Opus | Online-Mehrspieler (PeerJS), Lobby, Synchronisierung | erledigt: `js/net.js`, `js/lobby.js`, `js/sync.js` |
 | 4 | ChatGPT | – | 2 große Karten nach `docs/KARTEN.md` | – |
 | 4 | Claude (Koordinator) | – | Karten prüfen, einbauen, Licht und Deko | `js/maps/*` |
 | 5 | Agent „QA" | Sonnet | Testläufe aller Modi per Playwright, Fehlerliste mit Screenshots | `tools/` |
@@ -65,3 +65,10 @@ Parallele Agenten arbeiten in eigenen Git-Worktrees; der Koordinator prüft und 
   Spinde, Tore) plus Effekt-Ereignisse (Ton, Partikel). Clients glätten fremde Positionen.
   Eigene vorhergesagte Effekte werden nicht doppelt abgespielt (Feld `src`).
 - Bei getragenen oder hängenden Survivors setzt der Host die Position.
+- Umsetzung und Nachrichtentypen: `CLAUDE.md`, Abschnitt „Synchronisierung im Spiel", und Kopfkommentar von `js/sync.js`.
+
+## Bots (umgesetzt)
+
+- Bots sollen sich wie brauchbare, aber fehlbare Mitspieler anfühlen: Sie schleichen, unterbrechen die Arbeit, wenn der
+  Killer nah ist, rennen nur auf der Flucht, nutzen Fenster und Paletten, retten und heilen – und lassen dem Menschen Arbeit übrig.
+- Zielwerte (3 Bots allein, `tools/botsim.js`): Fluchtquote 30–60 %, ⌀ Dauer 4–9 min, Duo-Aufgabe meist erledigt.

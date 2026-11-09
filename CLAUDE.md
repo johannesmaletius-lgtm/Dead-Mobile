@@ -23,6 +23,7 @@ Plan und Spielregeln für den Mehrspieler-Ausbau: `docs/PLAN.md`. Kartenformat: 
 | `js/killer.js` | Killer-KI (Sicht, Patrouille, Suche, Verfolgung, Ausfallschritt, Lärm) |
 | `js/flow.js` | Treffer, Erwischt-/Haken-Sequenz, Sieg, Endbildschirm, `step()` (Welt-Update), Kamera |
 | `js/rules.js` | Team-Regeln: Boden, Tragen, Haken, Retten, Heilen, Zappeln, Duo, Killer-Teamteil, Team-Ende, Zuschauen |
+| `js/bots.js` | Bots (`Bots`): KI-Überlebende für freie Plätze – Flucht, Ausweichen, Team-Plan (retten, heilen, Duo, Aufgaben, Tor) |
 | `js/render.js` | Canvas-Setup, Grundformen, Boden vorzeichnen, Raum-Pfade fürs Licht |
 | `js/figures.js` | Figuren zeichnen: Skins `SKINS` (`cop`, `medic`, `janitor`), `SKIN_NAMES`, Killer, `skinPortrait(skin, px)`; Vorschau `tools/skins.html` |
 | `js/tiles.js` | Kacheln zeichnen (Wände, Möbel, Aufgaben, Paletten, Tore, Auto) |
@@ -30,9 +31,10 @@ Plan und Spielregeln für den Mehrspieler-Ausbau: `docs/PLAN.md`. Kartenformat: 
 | `js/hud.js` | Bildschirm-Ebenen, HUD, Aktionsknopf, QTE-Anzeige |
 | `js/net.js` | Netz: Räume, Spieler-IDs, Nachrichten (`Net`), Transport PeerJS bzw. BroadcastChannel |
 | `js/lobby.js` | Team-Menü und Lobby (`Lobby`): Name, Figur, Bots, Raum erstellen/beitreten, Start |
+| `js/sync.js` | Netz Teil 2 (`Sync`): Synchronisierung im Spiel – Host maßgeblich, Schnappschüsse, Ereignisse, Glättung |
 | `js/main.js` | Eingabe (Touch/Tastatur), Bildschirme, Start, Spielschleife, Test-API `window.__ns` |
 
-## Mehrere Überlebende (Stand Phase 1)
+## Mehrere Überlebende
 - `SV` = alle Survivors, `S` = der eigene (Eingabe, Kamera, HUD), `MODE` = `'solo'` | `'team'`.
   `startGame()` = Solo (unverändert), `startTeam(mapId, roster, spawnIdx?)` = Team mit 3 Plätzen (Bots füllen auf; `spawnIdx` online vom Host).
 - Fremde Survivors laufen über `updateOther(sv, dt)` → `sv.ctl(sv, dt)` (Bot-KI bzw. Netz setzt das).
@@ -61,6 +63,24 @@ Alles wirkt nur mit `MODE === 'team'`. Kopfkommentar in `js/rules.js` = vollstä
   (offline: Ende; das Netz darf die Funktion überschreiben). Ende: `showTeamEnd()` mit `#teamRes`. Stellschrauben in `CFG` (`crawl` … `duoTime`).
 - Test: `NODE_PATH="$(npm root -g)" node tools/teamtest.js [bildordner]` (Szenarien PASS/FAIL, Screenshots);
   mit `--map <id>` kartenunabhängig (alle Haken, Paletten-Stuns beim Tragen, Tore, Duo, Dauerlauf mit freier Killer-KI).
+  Der Test schaltet die Bots ab (`Bots.on = false`) und steuert die anderen Survivors selbst.
+
+## Bots (Phase 3, `js/bots.js`)
+- `startTeam` ruft `Bots.attach()`: jeder Platz mit `kind: 'bot'` bekommt `sv.bot` (Gedächtnis) und `sv.ctl = Bots.think`.
+  `Bots.give(sv)` macht nachträglich einen Bot aus einer Figur (Mitspieler geht), `Bots.on = false` schaltet sie ab (Tests).
+- Rangfolge je Schritt: getragen → `wiggle` · am Boden → wegkriechen · im Spind → abwarten · **Flucht** (gejagt/entdeckt:
+  rennen, Fenster und Paletten nutzen, Palette werfen, wenn der Killer hindurchkommt, Sicht brechen, ab und zu Spind) ·
+  **Ausweichen** (Killer nah: Arbeit unterbrechen, leise aus der Sicht) · **Auftrag** aus dem Team-Plan.
+- Team-Plan (`plan()`, alle 0,4 s, für alle Bots gemeinsam): retten (genau ein Bot je Haken, nur wenn der Killer weit weg
+  ist) → heilen → Duo-Aufgabe zu zweit (oder mit einem Menschen an der Station) → Aufgaben verteilt → im Endspiel zum Tor.
+- Nicht geschummelt: Killer-Position nur bei Sicht oder näher als 12 Kacheln (kurzes Gedächtnis). Gerannt wird nur auf der Flucht.
+- Fluchtwege über zwei Zeitfelder (`flood`: Sekunden bis zu jeder Kachel für Bot und Killer). Hängt ein Bot fest, verwirft
+  er Weg und Auftrag und macht einen Schritt zur Seite.
+- Stellschrauben in `Bots.cfg` (Schrecksekunde, Unschärfe, Vorsicht, Pausen …), je Karte überschreibbar mit `MAPS[id].bots`.
+  Sie machen die Bots absichtlich fehlbar. Die Messwerte streuen stark (±10 Punkte bei 30 Partien): mehrere `--seed` vergleichen.
+  Abstimmen mit `node tools/botsim.js [--n 30] [--seed 2] [--maps …] [--cfg hear=9,noise=2] [--log]`: 3 Bots allein gegen den Killer;
+  Ziel je Karte: Fluchtquote 30–60 %, ⌀ Dauer 4–9 min, Duo meist erledigt, kein Hängenbleiben (Exit-Code 1).
+- `updateSurv` reicht an `updateOther` weiter, wenn `S` kein lokaler Spieler ist (nur in der Simulation).
 ## Netz & Lobby (`js/net.js`, `js/lobby.js`)
 - Titel → **Team**: Name (`save.name`), Figur (`save.skin`), „Mit Bots spielen" (offline), „Raum erstellen",
   Code + „Beitreten". Raum: Code (4 Buchstaben ohne I/O, Peer-ID `deadmobile-CODE`), 3 Plätze (leer = Bot),
@@ -79,7 +99,25 @@ Alles wirkt nur mit `MODE === 'team'`. Kopfkommentar in `js/rules.js` = vollstä
   Lobby `lobby {map}`, `start {map, spawn, roster:[{id, name, skin, human}]}`, `back`. Alle rufen
   `startTeam(map, roster, spawn)`; im Roster ist der eigene Eintrag `local`, andere Menschen `remote`, freie Plätze `bot`.
 - Im Team-Spiel: Pause zeigt „Zum Menü" bzw. online „Raum verlassen" statt Neustart; „Nochmal" bleibt im Team
-  (online: alle zurück in den Raum). Host weg → Meldung auf dem Titel. Teil 2 (Synchronisierung) fehlt noch.
+  (online: alle zurück in den Raum). Host weg → Meldung auf dem Titel.
+
+## Synchronisierung im Spiel (Netz Teil 2, `js/sync.js`)
+- `Sync.start()` hängt an `Net.onGameStart`, `Sync.stop()` an `Net.onGameEnd`; `step()` ruft am Ende `Sync.tick(dt)` (20×/s senden).
+- **Host maßgeblich:** Killer, Bots, Welt, alle Zustandswechsel. Figuren der Mitspieler (`kind: 'remote'`) bekommen
+  `sv.ctl = remoteCtl`: Position aus dem Strom des Clients (geglättet), Heilen/Retten nach dessen Absicht.
+- **Client:** eigene Position/Animation und eigene QTEs. Kein Killer (`K.net` in `updateKiller`), keine Bots, kein Team-Ende.
+- Nachrichten: Client→Host `c` (Zustand: Position, Aufgabe + Fortschritt, wen er heilt/rettet) und `e` (Ereignis: `pallet`
+  `vault` `hide` `unhide` `qfail` `tfail` `hfail` `great` `done` `wig`). Host→Clients `s` (Schnappschuss), `v`
+  (Zustandswechsel: der Client spielt dieselbe Funktion aus `js/rules.js` nach – samt Effekten), `fx` (Effekte ohne
+  Zustandswechsel, Feld `src` = wer ihn schon selbst abgespielt hat), `end` (Spielende), `nowork` (Aufgabe besetzt).
+- Dafür überschreibt `Sync` beim Start globale Funktionen (`wrap`) und stellt sie beim Ende wieder her. **Neue
+  Zustandswechsel oder Effekte, die alle sehen sollen, dort eintragen** (Host: verschicken, Client: nachspielen).
+  Nur `function`-Deklarationen lassen sich überschreiben, `const`-Funktionen nicht.
+- Schnappschüsse sind Felder fester Reihenfolge (`snapshot()` ↔ `onSnap()`); Zeiten als Restdauer, weil jede Seite ihr eigenes `T` hat.
+- Pause ist online nur eine Überlagerung (`netPaused`, `netPause()` in `js/main.js`), niemand hält das Spiel an. Im
+  Hintergrund-Tab treibt ein Worker-Taktgeber die Simulation weiter (`bgFrame()`), damit der Host nicht einfriert.
+- Mitspieler weg (`Net.on('leave')`) → beim Host übernimmt ein Bot. „Ergebnis" beim Zuschauen (`teamGiveUp`): beim Client
+  endet nur die eigene Ansicht, beim Host erst, wenn kein Mitspieler mehr im Spiel ist. Kein Wiedereinstieg mitten im Spiel.
 
 ## Karten prüfen und importieren
 `node tools/mapcheck.js js/maps/schule.js` prüft Karten, `--selftest` testet den Import. `node tools/mapcheck.js antwort.md --id name --write`
@@ -101,10 +139,12 @@ NODE_PATH="$(npm root -g)" node tools/regress.js index.html /tmp/bilder
 # Vergleich mit dem letzten Commit (Solo/Tutorial müssen IDENTISCH bleiben):
 git worktree add /tmp/alt HEAD && NODE_PATH="$(npm root -g)" node tools/regress.js /tmp/alt/index.html index.html
 ```
-Netz und Lobby (a: BroadcastChannel, b: echtes PeerJS mit lokalem Signalserver, c: offline mit Bots):
+Netz und Lobby (a: BroadcastChannel, b: echtes PeerJS mit lokalem Signalserver, c: offline mit Bots, d: Synchronisierung im Spiel):
 ```bash
 # <deps> enthält node_modules/peer (Server) und node_modules/peerjs; ohne --peer wird b übersprungen
 NODE_PATH="$(npm root -g)" node tools/nettest.js index.html --peer <deps> [--shots /tmp/netz] [--fonts <ordner>] [--only a,c]
+# Bots: 3 Bots allein gegen den Killer, Statistik je Karte
+NODE_PATH="$(npm root -g)" node tools/botsim.js --n 30
 ```
 Mit `#test` in der URL wird nichts gespeichert. `window.__ns` ist die Test-API (`startGame`, `tick(sek)`,
 `tp`, `ktp`, `finish`, `caught`, `down`/`up`, `keys` …). Feste Zufallszahlen und eine abgeschaltete
