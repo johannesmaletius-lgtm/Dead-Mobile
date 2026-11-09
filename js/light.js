@@ -6,7 +6,7 @@ function flick(L) { if (!L.fl) return 1; const n = Math.sin(T * 13 + L.x) * Math
 function visibleMask() {
   if (state === 'title' || state === 'end') return K.mask;
   if (state === 'caught') { const q = seq; return (q.phase === 'hit' || q.phase === 'carry') ? K.mask : (mask[I(q.hook.front.x | 0, q.hook.front.y | 0)] || K.mask); }
-  return S.mask;
+  return viewer().mask;
 }
 function drawLight(z, ox, oy, visM) {
   const s = z * LS;
@@ -16,7 +16,7 @@ function drawLight(z, ox, oy, visM) {
   lx.fillStyle = 'rgba(0,0,0,.15)'; lx.fillRect(0, 0, lc.width, lc.height);
   lx.setTransform(s, 0, 0, s, ox * LS, oy * LS);
   const dim = state === 'title' || state === 'end' ? .85 : 1;
-  for (let r = 1; r <= 9; r++) if (visM & (1 << r)) { lx.fillStyle = `rgba(0,0,0,${ROOMS[r].amb * dim})`; lx.fill(roomPath[r]); }
+  for (let r = 1; r <= NR; r++) if ((visM & (1 << r)) && roomPath[r]) { lx.fillStyle = `rgba(0,0,0,${ROOMS[r].amb * dim})`; lx.fill(roomPath[r]); }
   lx.save(); lx.clip(maskPath(visM));
   if (state === 'play' && !S.hidden) {
     lg(lx, S.x, S.y - .5, 3.6, .85);
@@ -24,6 +24,8 @@ function drawLight(z, ox, oy, visM) {
     g.addColorStop(0, 'rgba(0,0,0,.78)'); g.addColorStop(1, 'rgba(0,0,0,0)'); lx.fillStyle = g;
     lx.beginPath(); lx.moveTo(S.x, S.y - .4); lx.arc(S.x, S.y - .4, R, a - .48, a + .48); lx.closePath(); lx.fill();
   }
+  // Teamkollegen tragen auch ein kleines Licht
+  for (const sv of SV) if (sv !== S && state === 'play' && survShown(sv, visM)) lg(lx, sv.x, sv.y - .5, 2.4, .6);
   if (state !== 'play' && K) lg(lx, K.x, K.y - .5, 3, .6);
   for (const L of LAMPS) if (visM & (1 << L.room)) lg(lx, L.x, L.y, L.r, L.a * flick(L));
   for (const t of tasks) if (t.done && (visM & (1 << t.room))) lg(lx, t.cx, t.cy - .4, 3.6, .8);
@@ -60,8 +62,8 @@ function drawGlows(visM) {
   }
   const pulse = .75 + .25 * Math.sin(T * 7);
   for (const s of stains()) { glow(s.x, s.y, 2.7, `rgba(255,8,8,${.5 * s.s * pulse})`); glow(s.x, s.y, 1.1, `rgba(255,50,50,${.45 * s.s * pulse})`); }
-  if (visM & (1 << 8)) {
-    const on = endgame || tasks.find(t => t.type === 'radio').done;
+  if (car.has && (visM & (1 << car.room))) {
+    const rt = tasks.find(t => t.type === 'radio'), on = endgame || (rt && rt.done);
     if (on) { const b = Math.sin(T * 12) > 0; glow(car.x0 + (b ? 1.8 : 2.2), car.y0 - .1, 2.6, 'rgba(80,130,255,.35)'); }
   }
   for (const g of gates) glow((g.x0 + g.x1 + 1) / 2, g.y + .4 - 1.55, 1.3, gatesPowered ? 'rgba(90,255,150,.35)' : 'rgba(255,30,30,.2)');
@@ -83,10 +85,12 @@ function drawGlows(visM) {
     const p = .55 + .45 * Math.sin(T * 3);
     for (const t of tasks) {
       if (t.done) continue;
-      const inside = visM & (1 << t.room), a = inside ? .3 : .75 * p, b = t.aura;
-      ctx.strokeStyle = `rgba(242,193,75,${a * .35})`; ctx.lineWidth = .16; ctx.strokeRect(b.x, b.y, b.w, b.h);
-      ctx.strokeStyle = `rgba(255,218,120,${a})`; ctx.lineWidth = .045; ctx.strokeRect(b.x, b.y, b.w, b.h);
-      if (t.prog > 0) { ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(b.x, b.y - .22, b.w, .1); ctx.fillStyle = '#f2c14b'; ctx.fillRect(b.x, b.y - .22, b.w * t.prog, .1); }
+      const inside = visM & (1 << t.room), a = inside ? .3 : .75 * p;
+      for (const b of t.stations ? t.stations.map(s => s.aura) : [t.aura]) {
+        ctx.strokeStyle = `rgba(242,193,75,${a * .35})`; ctx.lineWidth = .16; ctx.strokeRect(b.x, b.y, b.w, b.h);
+        ctx.strokeStyle = `rgba(255,218,120,${a})`; ctx.lineWidth = .045; ctx.strokeRect(b.x, b.y, b.w, b.h);
+        if (t.prog > 0) { ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(b.x, b.y - .22, b.w, .1); ctx.fillStyle = '#f2c14b'; ctx.fillRect(b.x, b.y - .22, b.w * t.prog, .1); }
+      }
     }
     if (gatesPowered) for (const g of gates) {
       ctx.strokeStyle = `rgba(160,255,190,${.7 * p})`; ctx.lineWidth = .06; ctx.strokeRect(g.x0 - .2, g.y - 1.2, g.x1 - g.x0 + 1.4, 1.9);
@@ -105,7 +109,10 @@ function drawClaws() {
 }
 function collectEnts() {
   const e = [];
-  if (S && !S.ghost && !S.hidden && !S.carried && !S.hung && state !== 'title' && state !== 'end') e.push({ y: S.y, d: drawSurv });
+  if (state !== 'title' && state !== 'end') {
+    const visM = SV.length > 1 ? visibleMask() : 0;
+    for (const sv of SV) if (sv && !sv.ghost && !sv.hidden && !sv.carried && !sv.hung && !sv.out && (sv === S || survShown(sv, visM))) e.push({ y: sv.y, d: () => drawSurv(sv) });
+  }
   if (K && killerVisible()) e.push({ y: K.y, d: drawKiller });
   e.sort((a, b) => a.y - b.y);
   return e;

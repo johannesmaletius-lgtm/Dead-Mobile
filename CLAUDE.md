@@ -12,8 +12,9 @@ Plan und Spielregeln für den Mehrspieler-Ausbau: `docs/PLAN.md`. Kartenformat: 
 |---|---|
 | `index.html` | Markup (Titel, Pause, Ende, Tutorial-Karte) + Skript-Reihenfolge |
 | `css/style.css` | Gesamtes CSS |
-| `js/core.js` | Hilfsfunktionen (`clamp`, `lerp`, `hash` …), `CFG` (Stellschrauben) |
-| `js/map.js` | Karte (`MAP`, `ROOMS`), Räume/Masken, Objekte (Aufgaben, Paletten, Fenster, Spinde, Haken, Tore), `LAMPS`, `SPAWNS`, Kollision, Sichtlinie, A* (`findPath`) |
+| `js/core.js` | Hilfsfunktionen (`clamp`, `lerp`, `hash` …), `CFG` (Stellschrauben), Kartenregister `MAPS` |
+| `js/maps/*.js` | Kartendefinitionen `MAPS[id] = { grid, rooms, lamps, spawns, need, decor… }` (`schule` = Solo, `schule-team` = kleine Team-Testkarte) |
+| `js/map.js` | `loadMap(id)`: Räume/Masken, Objekte (Aufgaben inkl. Duo, Paletten, Fenster, Spinde, Haken, Tore, Kessel), `LAMPS`, `SPAWNS`, `NEED`; Kollision, Sichtlinie, A* (`findPath`) |
 | `js/audio.js` | Web-Audio-Synth `A`, Soundeffekte `SFX`, Verfolgungsmusik |
 | `js/state.js` | Globale Spielzustände (`state`, `S`, `K`, `T` …), Speicherstand, `newSurv`/`newKiller`, `startGame` |
 | `js/tutorial.js` | Spielbares Tutorial (Schritte `TSTEPS`) |
@@ -27,6 +28,22 @@ Plan und Spielregeln für den Mehrspieler-Ausbau: `docs/PLAN.md`. Kartenformat: 
 | `js/light.js` | Licht, Leuchten, `render()` setzt das Bild zusammen |
 | `js/hud.js` | Bildschirm-Ebenen, HUD, Aktionsknopf, QTE-Anzeige |
 | `js/main.js` | Eingabe (Touch/Tastatur), Bildschirme, Start, Spielschleife, Test-API `window.__ns` |
+
+## Mehrere Überlebende (Stand Phase 1)
+- `SV` = alle Survivors, `S` = der eigene (Eingabe, Kamera, HUD), `MODE` = `'solo'` | `'team'`.
+  `startGame()` = Solo (unverändert), `startTeam(mapId, roster)` = Team mit 3 Plätzen (Bots füllen auf).
+- Fremde Survivors laufen über `updateOther(sv, dt)` → `sv.ctl(sv, dt)` (Bot-KI bzw. Netz setzt das).
+- Bewegung für beliebige Figuren: `goTo(e, x, y, spd, dt)` (A*, springt/zerbricht), `moveAgent`,
+  `survMove(sv, inp, dt)`, `survMoved(sv, md, dt)` (Spuren, Blut, Tor). Aktionen nehmen den Survivor als
+  letzten Parameter: `dropPallet(p, sv)`, `vaultOver(o, isWin, sv)`, `hide(L, sv)`, `unhide(sv)`, `hitSurvivor(sv)`.
+- Killer: `K.target` (Jagdziel), `K.focus` (gerade gesehen), `killerSees(sv)`, `huntTarget()`.
+- Aufgaben haben `points` (Duo = 2, `t.stations`), Tore öffnen bei `taskPoints() >= NEED`.
+- Platzhalter für Phase 2 in `js/flow.js`: `downSurv`, `escapeSurv`, `teamCheckEnd`.
+- `viewer()` (wessen Sicht), `isWorked(t)`, `skinOf(sv)`, `inPlay(sv)` stehen in `js/state.js`.
+
+## Karten prüfen und importieren
+`node tools/mapcheck.js js/maps/schule.js` prüft Karten. `node tools/mapcheck.js antwort.md --id name --write`
+macht aus einer ChatGPT-Antwort (Format: `docs/KARTEN.md`) eine Kartendatei; danach in `index.html` eintragen.
 
 ## Regeln für Änderungen
 - Code, der beim Laden ausgeführt wird, darf nur nutzen, was in **früher geladenen** Dateien steht.

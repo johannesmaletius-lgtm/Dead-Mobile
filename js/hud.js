@@ -58,6 +58,7 @@ function icon(kind, cx, cy, s, col, lw = 2.2) {
     case 'hide': ctx.rect(-.5, -.95, 1, 1.9); ctx.stroke(); ctx.beginPath(); for (let k = 0; k < 3; k++) { ctx.moveTo(-.25, -.6 + k * .22); ctx.lineTo(.25, -.6 + k * .22); } ctx.stroke(); break;
     case 'unhide': ctx.moveTo(-.2, -.95); ctx.lineTo(-.75, -.95); ctx.lineTo(-.75, .95); ctx.lineTo(-.2, .95); ctx.stroke(); ctx.beginPath(); ctx.moveTo(-.3, 0); ctx.lineTo(.85, 0); ctx.moveTo(.45, -.4); ctx.lineTo(.85, 0); ctx.lineTo(.45, .4); ctx.stroke(); break;
     case 'gate': ctx.moveTo(-.85, .95); ctx.lineTo(-.85, -.85); ctx.lineTo(.85, -.85); ctx.lineTo(.85, .95); ctx.moveTo(-.4, -.85); ctx.lineTo(-.4, .95); ctx.moveTo(0, -.85); ctx.lineTo(0, .95); ctx.moveTo(.4, -.85); ctx.lineTo(.4, .95); ctx.stroke(); break;
+    case 'duo': ctx.rect(-.95, -.35, .62, 1.15); ctx.rect(.33, -.35, .62, 1.15); ctx.stroke(); ctx.beginPath(); ctx.moveTo(-.33, .25); ctx.lineTo(.33, .25); ctx.stroke(); ctx.beginPath(); ctx.arc(-.64, -.02, .14, 0, TAU); ctx.arc(.64, -.02, .14, 0, TAU); ctx.fill(); break;
     case 'tap': ctx.arc(0, 0, .35, 0, TAU); ctx.fill(); ctx.beginPath(); ctx.arc(0, 0, .75, 0, TAU); ctx.stroke(); break;
     case 'arrow': ctx.moveTo(0, -.8); ctx.lineTo(.7, .1); ctx.lineTo(.28, .1); ctx.lineTo(.28, .8); ctx.lineTo(-.28, .8); ctx.lineTo(-.28, .1); ctx.lineTo(-.7, .1); ctx.closePath(); ctx.fill(); break;
   }

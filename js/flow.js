@@ -1,20 +1,21 @@
 'use strict';
 /* Dead Mobile – Treffer, Erwischt, Haken-Sequenz, Sieg, Endbildschirm, Welt-Update, Kamera */
 /* ================= Treffer / Erwischt / Haken ================= */
-function hitSurvivor() {
+function hitSurvivor(sv = S) {
   if (state !== 'play') return;
-  if (S.hp <= 1 && !TUT) { caught(); return; }
-  const wasHurt = S.hp <= 1;
-  if (S.hidden) { S.x = S.hidden.front.x; S.y = S.hidden.front.y; S.hidden.known = false; S.hidden = null; }
-  if (S.work) stopWork();
-  if (S.act && S.act.kind !== 'vault') { S.act = null; S.z = 0; resolve(S); }
-  S.hp = 1; S.burst = CFG.burstT; S.flinch = .3;
-  K.act = { kind: 'wipe', t: 0, dur: CFG.wipe }; K.seenT = T; K.lastSeen = { x: S.x, y: S.y }; K.blood = 0; K.chaseT = 0;
-  SFX.hit(); SFX.gasp(); flash = .75; flashCol = '195,18,31'; shake(.55); slowT = .12;
-  for (let i = 0; i < 22; i++) parts.push({ x: S.x, y: S.y, z: .7, vx: rand(-2.5, 2.5), vy: rand(-1.5, 1.5), vz: rand(.5, 3), g: 9, life: rand(.5, 1), max: 1, col: '150,10,18', sz: .06, splat: 1 });
+  if (sv.hp <= 1 && !TUT) { if (MODE === 'team') downSurv(sv); else caught(sv); return; }
+  const wasHurt = sv.hp <= 1;
+  if (sv.hidden) { sv.x = sv.hidden.front.x; sv.y = sv.hidden.front.y; sv.hidden.known = false; sv.hidden = null; }
+  if (sv.work) { if (sv === S) stopWork(); else sv.work = null; }
+  if (sv.act && sv.act.kind !== 'vault') { sv.act = null; sv.z = 0; resolve(sv); }
+  sv.hp = 1; sv.burst = CFG.burstT; sv.flinch = .3;
+  K.act = { kind: 'wipe', t: 0, dur: CFG.wipe }; K.seenT = T; K.lastSeen = { x: sv.x, y: sv.y }; K.blood = 0; K.chaseT = 0;
+  SFX.hit(); SFX.gasp();
+  if (sv === S) { flash = .75; flashCol = '195,18,31'; shake(.55); slowT = .12; } else shake(.2);
+  for (let i = 0; i < 22; i++) parts.push({ x: sv.x, y: sv.y, z: .7, vx: rand(-2.5, 2.5), vy: rand(-1.5, 1.5), vz: rand(.5, 3), g: 9, life: rand(.5, 1), max: 1, col: '150,10,18', sz: .06, splat: 1 });
   if (TUT) { TUT.flag.hit = true; if (wasHurt) toast('Autsch! Im echten Spiel wärst du jetzt am Haken.'); }
 }
-function caught() {
+function caught(sv = S) {
   if (state !== 'play') return;
   if (TUT) { hitSurvivor(); return; }
   state = 'caught'; Q = null; S.work = null; S.act = null; S.z = 0;
@@ -33,7 +34,7 @@ function updateSeq(dt) {
   if (q.phase === 'hit') { if (q.t > .95) { q.phase = 'carry'; q.t = 0; S.carried = true; K.path = null; } }
   else if (q.phase === 'carry') {
     let arrived = false;
-    if (K.act) runAct(dt); else arrived = goTo(h.front.x, h.front.y, 4.8, dt);
+    if (K.act) runAct(dt); else arrived = goTo(K, h.front.x, h.front.y, 4.8, dt);
     S.x = K.x; S.y = K.y;
     if (arrived || q.t > 5.5) { K.x = h.front.x; K.y = h.front.y; K.act = null; K.z = 0; K.moving = false; K.dir = Math.atan2(h.cy - K.y, h.cx - K.x); q.phase = 'lift'; q.t = 0; }
   } else if (q.phase === 'lift') {
@@ -69,7 +70,7 @@ function showEnd(won) {
   const rows = [['Chase Time', fmt(stats.chase)], ['Escapes', save.wins], ['Pallets Thrown', stats.pallets], ['Windows Vaulted', stats.vaults],
     ['Killer Stuns', stats.stuns], ['Chases Won', stats.chasesWon], ['Skill Checks', stats.checks + '/' + tries]];
   $('#sgrid').innerHTML = rows.map(([k, v]) => `<div>${k}<b>${v}</b></div>`).join('');
-  const ic = { gen: '<path d="M13 2 4 14h6l-1 8 9-12h-6z"/>', fuse: '<path d="M7 3h10v18H7zM10 16l4-8" stroke="currentColor"/>', radio: '<path d="M8 8h9v14H8zM14 8V2h1.5v6z"/>', valve: '<path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 3.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11z"/><path d="M11 3h2v18h-2zM3 11h18v2H3z"/>' };
+  const ic = { gen: '<path d="M13 2 4 14h6l-1 8 9-12h-6z"/>', fuse: '<path d="M7 3h10v18H7zM10 16l4-8" stroke="currentColor"/>', radio: '<path d="M8 8h9v14H8zM14 8V2h1.5v6z"/>', duo: '<path d="M2 7h7v13H2zM15 7h7v13h-7zM9 13h6v2H9z"/>', valve: '<path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 3.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11z"/><path d="M11 3h2v18h-2zM3 11h18v2H3z"/>' };
   $('#endStats').innerHTML = tasks.map(t => `<svg viewBox="0 0 24 24" class="${t.done ? 'ic-on' : 'ic-off'}">${ic[t.type]}</svg>`).join('') + `<span class="time">${fmt(stats.end - stats.t0)}</span>`;
   const eb = $('#endBest');
   if (save.best) { eb.hidden = false; eb.innerHTML = gateSvg + fmt(save.best); } else eb.hidden = true;
@@ -77,6 +78,25 @@ function showEnd(won) {
   setTimeout(() => { try { $('#again').focus({ preventScroll: true }); } catch (e) {} }, 50);
 }
 const gateSvg = '<svg viewBox="0 0 24 24"><path d="M3 21V5h2v16zM19 21V5h2v16zM3 4h18v2H3zM8 7h1.5v14H8zM11.3 7h1.5v14h-1.5zM14.6 7h1.5v14h-1.5z"/></svg>';
+/* Team-Modus – Platzhalter bis Phase 2 (Regeln): am Boden / entkommen */
+function downSurv(sv) {
+  sv.hp = 0; sv.out = 'dead'; sv.work = null; sv.act = null;
+  if (sv.hidden) { sv.hidden = null; }
+  if (sv === S) { Q = null; toast('Erwischt!'); }
+  K.act = { kind: 'wipe', t: 0, dur: CFG.wipe }; K.mode = 'patrol'; K.goal = null; K.aware = 0;
+  teamCheckEnd();
+}
+function escapeSurv(sv, g) {
+  sv.out = 'escaped'; sv.work = null; sv.act = null;
+  if (sv === S) { Q = null; SFX.win(); toast('Entkommen!'); }
+  teamCheckEnd();
+}
+function teamCheckEnd() {
+  if (state !== 'play' || SV.some(v => !v.out)) return;
+  stats.end = T; const won = S.out === 'escaped';
+  if (won) { save.wins++; persist(); }
+  showEnd(won);
+}
 const fmt = s => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 
 /* ================= Welt-Update ================= */
@@ -87,6 +107,7 @@ function step(dt) {
   if (state === 'play' && K && K.mode === 'chase') stats.chase += dt;
   if (state === 'play') {
     updateSurv(dt);
+    if (SV.length > 1) for (const sv of SV) if (sv !== S) updateOther(sv, dt);
     if (Q && state === 'play') updateQTE(dt);
     if (state === 'play') updateKiller(dt);
     if (state === 'play' && TUT) tutUpdate(dt);
@@ -96,16 +117,16 @@ function step(dt) {
     seq.t += dt; const g = seq.g;
     S.dir = g.north ? -Math.PI / 2 : Math.PI / 2; S.moving = true; S.running = true; S.walk += dt * 20;
     S.y += (g.north ? -1 : 1) * 2.6 * dt;
-    if (K.act) runAct(dt); else if (hyp(K.x - S.x, K.y - S.y) > 2) goTo(S.x, S.y + (g.north ? 1.5 : -1.5), CFG.kChase, dt);
+    if (K.act) runAct(dt); else if (hyp(K.x - S.x, K.y - S.y) > 2) goTo(K, S.x, S.y + (g.north ? 1.5 : -1.5), CFG.kChase, dt);
     if (seq.t > 1.8 && !seq.shown) { seq.shown = true; showEnd(true); }
   } else if (state === 'title' || state === 'end') {
     if (K.act) runAct(dt);
-    else { if (!K.goal) { const i = pick(roomFloor[pick([1, 2, 3, 4, 5, 7, 8, 9])]); K.goal = { x: i % W + .5, y: ((i / W) | 0) + .5 }; } if (goTo(K.goal.x, K.goal.y, CFG.kPatrol, dt)) { K.goal = null; K.act = { kind: 'look', t: 0, dur: rand(1, 2), base: K.dir }; } }
+    else { if (!K.goal) { const i = pick(roomFloor[pick(MAPDEF.demoRooms || allRooms())]); K.goal = { x: i % W + .5, y: ((i / W) | 0) + .5 }; } if (goTo(K, K.goal.x, K.goal.y, CFG.kPatrol, dt)) { K.goal = null; K.act = { kind: 'look', t: 0, dur: rand(1, 2), base: K.dir }; } }
     const m = mask[I(K.x | 0, K.y | 0)]; if (m) K.mask = m;
   }
   // Welt
   for (const g of gates) if (gatesPowered) g.open = Math.min(1, g.open + dt / 2.2);
-  for (const L of lockers) if (L.anim > 0 && !(S && S.act && S.act.L === L) && !(K.act && K.act.L === L)) L.anim = Math.max(0, L.anim - dt * 2.5);
+  for (const L of lockers) if (L.anim > 0 && !SV.some(v => v.act && v.act.L === L) && !(K.act && K.act.L === L)) L.anim = Math.max(0, L.anim - dt * 2.5);
   for (let i = parts.length - 1; i >= 0; i--) {
     const p = parts[i]; p.life -= dt;
     p.x += p.vx * dt; p.y += p.vy * dt; p.vz -= p.g * dt; p.z += p.vz * dt;

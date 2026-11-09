@@ -68,19 +68,8 @@ function buildFloor() {
         for (let k = 0; k < 4; k++) { f.fillStyle = A_(.3); f.fillRect(x + rnd(), y + rnd(), .06, .06); }
     }
   }
-  // Turnhallen-Linien
-  f.strokeStyle = 'rgba(230,225,215,.2)'; f.lineWidth = .06;
-  f.strokeRect(27, 10.8, 17, 9.4); f.beginPath(); f.moveTo(35.5, 10.8); f.lineTo(35.5, 20.2); f.stroke();
-  f.beginPath(); f.arc(35.5, 15.5, 2.2, 0, TAU); f.stroke();
-  f.strokeStyle = 'rgba(180,40,40,.3)'; f.beginPath(); f.arc(27, 15.5, 3, -Math.PI / 2, Math.PI / 2); f.stroke(); f.beginPath(); f.arc(44, 15.5, 3, Math.PI / 2, Math.PI * 1.5); f.stroke();
-  // Parkplatz + Hüpfkästchen + Kreide-Grinsen
-  f.strokeStyle = 'rgba(220,220,210,.22)'; f.lineWidth = .07;
-  for (const px of [15.4, 20.6, 25.8]) { f.beginPath(); f.moveTo(px, 31.2); f.lineTo(px, 34.6); f.stroke(); }
-  f.strokeStyle = 'rgba(235,231,220,.2)'; f.lineWidth = .05;
-  [[4, 30.6], [4, 31.4], [3.6, 32.2], [4.4, 32.2], [4, 33]].forEach(([hx, hy]) => f.strokeRect(hx, hy, .8, .8));
-  f.beginPath(); f.arc(25, 34.8, .9, 0, TAU); f.stroke();
-  f.fillStyle = 'rgba(235,231,220,.25)'; f.fillRect(24.55, 34.4, .14, .22); f.fillRect(25.3, 34.4, .14, .22);
-  f.strokeStyle = 'rgba(195,18,31,.45)'; f.lineWidth = .09; f.beginPath(); f.moveTo(24.35, 34.95); f.quadraticCurveTo(25, 35.55, 25.65, 34.95); f.stroke();
+  // Kartenspezifische Bodenbemalung (Linien, Markierungen …)
+  if (MAPDEF.decorFloor) MAPDEF.decorFloor(f, rnd);
   // Schatten an Wänden
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const c = G[y][x]; if (!(c === '.' || c === 'D' || c === 'P')) continue;
@@ -91,15 +80,22 @@ function buildFloor() {
   // Flecken, Blätter, Papiere
   const splat = (x, y, s) => { f.fillStyle = 'rgba(80,6,10,.7)'; for (let k = 0; k < 7; k++) { f.beginPath(); f.ellipse(x + (rnd() - .5) * s, y + (rnd() - .5) * s * .6, s * (.1 + rnd() * .3), s * (.08 + rnd() * .2), rnd() * 3, 0, TAU); f.fill(); } };
   hooks.forEach(h => splat(h.front.x, h.front.y - .2, 1));
-  splat(10.5, 19.5, .8); splat(33.5, 12.5, .6); splat(3.5, 26, .7); splat(25, 27.5, .9); splat(42, 18, .5);
-  for (let k = 0; k < 26; k++) { const i = pick([...roomFloor[1], ...roomFloor[2], ...roomFloor[3]]); f.save(); f.translate(i % W + rnd(), ((i / W) | 0) + rnd()); f.rotate(rnd() * 3); f.fillStyle = `rgba(215,210,195,${.25 + rnd() * .25})`; f.fillRect(-.12, -.09, .24, .17); f.restore(); }
-  for (let k = 0; k < 140; k++) { const i = pick([...roomFloor[8], ...roomFloor[9]]); f.fillStyle = ['rgba(110,60,25,.5)', 'rgba(140,90,30,.4)', 'rgba(80,40,20,.5)'][k % 3]; f.beginPath(); f.ellipse(i % W + rnd(), ((i / W) | 0) + rnd(), .07, .04, rnd() * 3, 0, TAU); f.fill(); }
+  if (MAPDEF.decorStains) MAPDEF.decorStains(f, rnd, splat); else defaultStains(f, rnd, splat);
+}
+
+/* Standard-Deko für neue Karten: Papiere in Innenräumen, Laub draußen, ein paar Blutflecken */
+function defaultStains(f, rnd, splat) {
+  const inside = [], outside = [];
+  for (let r = 1; r <= NR; r++) if (ROOMS[r] && roomFloor[r]) (ROOMS[r].out ? outside : inside).push(...roomFloor[r].filter((_, k) => ROOMS[r].out || ['wood', 'lino', 'tiles'].includes(ROOMS[r].f) || k % 3 === 0));
+  for (let k = 0; k < 6 && inside.length; k++) { const i = inside[(rnd() * inside.length) | 0]; splat(i % W + .5, ((i / W) | 0) + .5, .5 + rnd() * .4); }
+  for (let k = 0, n = inside.length / 12; k < n; k++) { const i = inside[(rnd() * inside.length) | 0]; f.save(); f.translate(i % W + rnd(), ((i / W) | 0) + rnd()); f.rotate(rnd() * 3); f.fillStyle = `rgba(215,210,195,${.25 + rnd() * .25})`; f.fillRect(-.12, -.09, .24, .17); f.restore(); }
+  for (let k = 0, n = outside.length / 3; k < n; k++) { const i = outside[(rnd() * outside.length) | 0]; f.fillStyle = ['rgba(110,60,25,.5)', 'rgba(140,90,30,.4)', 'rgba(80,40,20,.5)'][k % 3]; f.beginPath(); f.ellipse(i % W + rnd(), ((i / W) | 0) + rnd(), .07, .04, rnd() * 3, 0, TAU); f.fill(); }
 }
 
 /* Raum-Pfade fürs Licht */
-const roomPath = {}, pathCache = {};
+let roomPath = {}, pathCache = {};
 function buildRoomPaths() {
-  for (let r = 1; r <= 9; r++) {
+  for (let r = 1; r <= NR; r++) {
     const p = new Path2D();
     for (let i = 0; i < N; i++) if (lmask[i] & (1 << r)) { const x = i % W, y = (i / W) | 0, h = OBJH[G[y][x]] || 0; p.rect(x - .02, y - h - .02, 1.04, 1.04 + h); }
     roomPath[r] = p;
@@ -107,6 +103,8 @@ function buildRoomPaths() {
 }
 function maskPath(m) {
   if (pathCache[m]) return pathCache[m];
-  const p = new Path2D(); for (let r = 1; r <= 9; r++) if (m & (1 << r)) p.addPath(roomPath[r]);
+  const p = new Path2D(); for (let r = 1; r <= NR; r++) if (m & (1 << r) && roomPath[r]) p.addPath(roomPath[r]);
   return (pathCache[m] = p);
 }
+/* Nach einem Kartenwechsel: Boden und Licht-Pfade neu aufbauen */
+function onMapLoaded() { roomPath = {}; pathCache = {}; buildFloor(); buildRoomPaths(); }

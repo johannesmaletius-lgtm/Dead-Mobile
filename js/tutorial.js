@@ -8,7 +8,7 @@ function ctlRoute(pts, spd, then) {
     if (i >= pts.length) { K.moving = false; if (then) { const f = then; then = null; f(); } return; }
     const p = pts[i];
     if (p.wait) { K.moving = false; w += dt; if (p.look != null) K.dir = p.look + Math.sin(w * 2.4) * .9; if (w >= p.wait) { w = 0; i++; } return; }
-    if (goTo(p.x, p.y, spd, dt)) i++;
+    if (goTo(K, p.x, p.y, spd, dt)) i++;
   };
 }
 function tutChase() { if (K.mode !== 'chase') { K.mode = 'chase'; K.seenT = T; K.lastSeen = { x: S.x, y: S.y }; K.path = null; K.goal = null; K.chaseT = 0; } }
@@ -57,8 +57,9 @@ const TSTEPS = [
 ];
 function startTutorial() {
   A.init();
+  useMap('schule'); MODE = 'solo';
   resetWorld(); endWon = false; toastMsg = null;
-  S = newSurv(27.5, 12.5); S.dir = 0; K = newKiller(40.5, 27.5); K.ctl = ctlIdle;
+  S = newSurv(27.5, 12.5, { skin: save.skin || 'cop' }); S.dir = 0; SV = [S]; K = newKiller(40.5, 27.5); K.ctl = ctlIdle;
   resetStats();
   cam.x = S.x; cam.y = S.y; cam.z = 1;
   state = 'play';
@@ -84,7 +85,7 @@ function tutUpdate(dt) {
 function finishTutorial() { save.tut = 1; persist(); startGame(); }
 function demoInit() {
   resetWorld();
-  S = newSurv(-50, -50); S.ghost = true;
+  S = newSurv(-50, -50); S.ghost = true; SV = [S];
   K = newKiller(34.5, 19.5);
   cam.x = K.x; cam.y = K.y;
 }

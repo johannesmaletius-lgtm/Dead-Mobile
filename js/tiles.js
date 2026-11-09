@@ -11,6 +11,8 @@ function wallTile(x, y) {
   if (!WALLISH(ch(x + 1, y))) { ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fillRect(x + .965, y - WH, .035, 1); }
   if (!WALLISH(ch(x, y + 1))) wallFront(x, y, floorRoom(x, y + 1));
 }
+/* Tafel an dieser Wandkachel? (Kartenangabe boards) */
+function boardAt(x, y, r) { const bs = MAPDEF.boards; if (bs) for (const b of bs) if (b.y === y && b.r === r && x >= b.x0 && x <= b.x1) return b; return null; }
 function wallFront(x, y, r) {
   const fy = y + 1 - WH, out = ROOMS[r] && ROOMS[r].out;
   ctx.fillStyle = out ? '#3a2420' : '#29272f'; ctx.fillRect(x, fy, 1, WH);
@@ -19,20 +21,21 @@ function wallFront(x, y, r) {
     for (let k = 1; k < 4; k++) ctx.fillRect(x, fy + k * WH / 4, 1, .018);
     for (let k = 0; k < 4; k++) for (let b = (k % 2) * .25; b < 1; b += .5) ctx.fillRect(x + b, fy + k * WH / 4, .018, WH / 4);
   } else {
-    if (y === 9 && ((r === 1 && x >= 3 && x <= 10) || (r === 2 && x >= 15 && x <= 22))) {
+    const bd = boardAt(x, y, r), ws = ROOMS[r] && ROOMS[r].wall;
+    if (bd) {
       ctx.fillStyle = '#1c3327'; ctx.fillRect(x, fy + .06, 1, WH - .2);
-      ctx.fillStyle = '#5d4a33'; if (x === 3 || x === 15) ctx.fillRect(x, fy + .04, .05, WH - .16); if (x === 10 || x === 22) ctx.fillRect(x + .95, fy + .04, .05, WH - .16);
+      ctx.fillStyle = '#5d4a33'; if (x === bd.x0) ctx.fillRect(x, fy + .04, .05, WH - .16); if (x === bd.x1) ctx.fillRect(x + .95, fy + .04, .05, WH - .16);
       ctx.fillStyle = '#5d4a33'; ctx.fillRect(x, fy + WH - .15, 1, .04);
       ctx.strokeStyle = 'rgba(235,231,220,.55)'; ctx.lineWidth = .03; ctx.beginPath();
-      if (r === 1 && (x === 6 || x === 7)) { for (let k = 0; k < 4; k++) { ctx.moveTo(x + .18 + k * .15, fy + .12); ctx.lineTo(x + .18 + k * .15, fy + .32); } ctx.moveTo(x + .1, fy + .3); ctx.lineTo(x + .8, fy + .14); }
-      else if (r === 2 && x === 18) { ctx.arc(x + .5, fy + .12, .18, .3, Math.PI - .3); }
+      if (bd.art === 'tally' && (x === bd.x0 + 3 || x === bd.x0 + 4)) { for (let k = 0; k < 4; k++) { ctx.moveTo(x + .18 + k * .15, fy + .12); ctx.lineTo(x + .18 + k * .15, fy + .32); } ctx.moveTo(x + .1, fy + .3); ctx.lineTo(x + .8, fy + .14); }
+      else if (bd.art === 'smile' && x === bd.x0 + 3) { ctx.arc(x + .5, fy + .12, .18, .3, Math.PI - .3); }
       else if (hash(x, 3) < .6) { ctx.moveTo(x + .1, fy + .15 + hash(x, 1) * .1); ctx.lineTo(x + .5 + hash(x, 2) * .4, fy + .14 + hash(x, 5) * .12); }
       ctx.stroke();
-    } else if (r === 3 && hash(x, y + 7) < .28) {
+    } else if (ws === 'poster' && hash(x, y + 7) < .28) {
       ctx.fillStyle = ['#7a2b22', '#2d4f6b', '#6b5a2a'][(x * 7) % 3]; ctx.fillRect(x + .2, fy + .08, .5, .3); ctx.fillStyle = 'rgba(235,231,220,.3)'; ctx.fillRect(x + .27, fy + .14, .3, .04);
-    } else if (r === 4) { ctx.fillStyle = '#22324a'; ctx.fillRect(x, fy + WH * .45, 1, WH * .45); ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(x + .98, fy + WH * .45, .02, WH * .45); }
-    else if (r === 5) { ctx.fillStyle = 'rgba(200,205,210,.1)'; for (let k = 0; k < 4; k++) ctx.fillRect(x + k * .25, fy + .05, .012, WH - .1); ctx.fillRect(x, fy + WH / 2, 1, .012); }
-    else if (r === 6 || r === 7) { ctx.fillStyle = '#3a3d42'; ctx.fillRect(x, fy + .1, 1, .06); ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(x, fy + .16, 1, .02); }
+    } else if (ws === 'gym') { ctx.fillStyle = '#22324a'; ctx.fillRect(x, fy + WH * .45, 1, WH * .45); ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(x + .98, fy + WH * .45, .02, WH * .45); }
+    else if (ws === 'tile') { ctx.fillStyle = 'rgba(200,205,210,.1)'; for (let k = 0; k < 4; k++) ctx.fillRect(x + k * .25, fy + .05, .012, WH - .1); ctx.fillRect(x, fy + WH / 2, 1, .012); }
+    else if (ws === 'pipe') { ctx.fillStyle = '#3a3d42'; ctx.fillRect(x, fy + .1, 1, .06); ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(x, fy + .16, 1, .02); }
     ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(x, fy + WH - .06, 1, .06);
   }
   ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(x, fy, 1, .02);
@@ -70,7 +73,7 @@ function treeTile(x, y) {
   circ(cx - .2, cy - .5, R * .4, '#19301f');
 }
 function deskTile(x, y, k) {
-  const mensa = room[I(x, y)] === 5 || k;
+  const mensa = (ROOMS[room[I(x, y)]] || {}).f === 'tiles' || k;
   const s = (dx, dy) => ch(x + dx, y + dy) === ch(x, y);
   const h = k ? .45 : mensa ? .34 : .3;
   const L = x + (s(-1, 0) ? 0 : .07), R = x + 1 - (s(1, 0) ? 0 : .07), U = y + (s(0, -1) ? 0 : .12), D = y + 1 - (s(0, 1) ? 0 : .12);
@@ -84,7 +87,7 @@ function deskTile(x, y, k) {
   if (!k && !mensa && hash(x, y) < .35) { ctx.save(); ctx.translate(x + .5, y + .35 - h); ctx.rotate(hash(y, x) - .5); ctx.fillStyle = 'rgba(230,225,210,.85)'; ctx.fillRect(-.13, -.09, .26, .18); ctx.restore(); }
 }
 function tallTile(x, y) {
-  const r = room[I(x, y)], gym = r === 4;
+  const r = room[I(x, y)], gym = (ROOMS[r] || {}).f === 'gym';
   const s = (dx, dy) => ch(x + dx, y + dy) === 'B';
   const h = gym ? .72 : 1.08;
   const l = s(-1, 0) ? 0 : .05, rt = s(1, 0) ? 0 : .05, tp = s(0, -1) ? 0 : .05;
@@ -106,9 +109,10 @@ function boilerTile(x, y) {
   if (!s(0, 1)) {
     ctx.fillStyle = '#1c1c21'; ctx.fillRect(x + l, y + 1 - h, 1 - l - rt, h);
     ctx.fillStyle = '#3a3a40'; for (let k = 0; k < 3; k++) circ(x + .2 + k * .3, y + 1 - h + .1, .03);
-    if (x === 30 || x === 31) { ctx.fillStyle = '#120806'; ctx.fillRect(x + (x === 30 ? .3 : 0), y + 1 - h + .45, .7, .5); ctx.fillStyle = `rgba(255,${110 + Math.sin(T * 7) * 30 | 0},30,.85)`; ctx.fillRect(x + (x === 30 ? .38 : 0), y + 1 - h + .58, .62, .3); }
+    const b = boilerAt[I(x, y)], fl = b.fc - 1;
+    if (y === b.y1 && (x === fl || x === b.fc)) { ctx.fillStyle = '#120806'; ctx.fillRect(x + (x === fl ? .3 : 0), y + 1 - h + .45, .7, .5); ctx.fillStyle = `rgba(255,${110 + Math.sin(T * 7) * 30 | 0},30,.85)`; ctx.fillRect(x + (x === fl ? .38 : 0), y + 1 - h + .58, .62, .3); }
   }
-  if (x === 29 && y === 24) { ctx.fillStyle = '#3a3b40'; ctx.fillRect(x + .3, y - h - .8, .28, .9); circ(x + .44, y - h - .8, .14, '#46474d'); }
+  if (x === boilerAt[I(x, y)].x0 && y === boilerAt[I(x, y)].y0) { ctx.fillStyle = '#3a3b40'; ctx.fillRect(x + .3, y - h - .8, .28, .9); circ(x + .44, y - h - .8, .14, '#46474d'); }
 }
 function lockerTile(x, y) {
   const L = lockerAt[I(x, y)], h = 1.25, U = y + .2, D = y + .9;
@@ -136,10 +140,10 @@ function hookTile(x, y) {
   ctx.strokeStyle = '#8d8f94'; ctx.lineWidth = .05; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.moveTo(px + .3, base - 1.7); ctx.lineTo(px + .3, base - 1.38); ctx.arc(px + .22, base - 1.38, .08, 0, Math.PI * .9); ctx.stroke();
   ctx.fillStyle = 'rgba(120,10,15,.7)'; ctx.fillRect(px + .27, base - 1.42, .05, .08);
-  if (S && S.hung === hk) drawHuman(px + .3, base + .05, { look: 'cop', face: 0, pose: 'hang', z: .72, moving: false });
+  for (const sv of SV) if (sv.hung === hk) drawHuman(px + .3, base + .05, { look: skinOf(sv), face: 0, pose: 'hang', z: .72, moving: false, hurt: MODE === 'team' || undefined });
 }
 function genTile(x, y) {
-  const t = taskAt[I(x, y)], h = .5, working = S && S.work === t;
+  const t = taskAt[I(x, y)], h = .5, working = isWorked(t);
   const j = working ? Math.sin(T * 50) * .012 : 0;
   ell(x + .5, y + .85, .45, .14, 'rgba(0,0,0,.4)');
   box(x + .1 + j, y + .22, .8, .66, h, '#7a6331', '#54441f');
@@ -160,7 +164,7 @@ function fuseTile(x, y) {
   ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fillRect(x + .5, y + .8 - h + .5, .02, .35);
 }
 function valveTile(x, y) {
-  const t = taskAt[I(x, y)], working = S && S.work === t;
+  const t = taskAt[I(x, y)], working = isWorked(t);
   box(x - .05, y + .38, .75, .28, .38, '#6d6f73', '#4a4c50');
   ctx.fillStyle = '#55575b'; ctx.fillRect(x + .44, y - .25, .12, .6);
   ctx.save(); ctx.translate(x + .5, y - .28); ctx.rotate(working && Q && Q.hold ? T * 5 : t.done ? 0 : .3);
@@ -170,6 +174,21 @@ function valveTile(x, y) {
   circ(x + .82, y + .02, .11, '#e7e3d6'); ctx.strokeStyle = '#222'; ctx.lineWidth = .025;
   const pa = working && Q ? Math.PI + Q.p * Math.PI : t.done ? Math.PI * 1.5 : Math.PI * 1.2;
   ctx.beginPath(); ctx.moveTo(x + .82, y + .02); ctx.lineTo(x + .82 + Math.cos(pa) * .09, y + .02 + Math.sin(pa) * .09); ctx.stroke();
+}
+/* Duo-Station: Schaltpult mit Schlüsselschalter. Lämpchen: rot = frei, gelb = besetzt, grün = fertig */
+function duoTile(x, y) {
+  const t = taskAt[I(x, y)], me = t.stations[0].x === x && t.stations[0].y === y ? 0 : 1, h = .8;
+  const occ = [0, 1].map(k => SV.some(v => v.work === t && v.station === k)), both = occ[0] && occ[1];
+  ell(x + .5, y + .86, .42, .13, 'rgba(0,0,0,.4)');
+  box(x + .13, y + .34, .74, .5, h, '#56625a', '#3b453f');
+  ctx.fillStyle = '#262d29'; ctx.fillRect(x + .19, y + .38 - h, .62, .32);
+  ctx.fillStyle = t.done ? '#7dff9a' : both ? (Math.sin(T * 10) > 0 ? '#f2c14b' : '#8a6a20') : '#1d2b23'; ctx.fillRect(x + .25, y + .43 - h, .32, .2);
+  if (!t.done && t.prog > 0) { ctx.fillStyle = 'rgba(242,193,75,.85)'; ctx.fillRect(x + .27, y + .58 - h, .28 * t.prog, .03); }
+  circ(x + .69, y + .53 - h, .065, t.done ? '#7dff9a' : occ[me] ? '#f2c14b' : '#a01818');
+  ctx.fillStyle = 'rgba(235,231,220,.65)'; for (let k = 0; k <= me; k++) ctx.fillRect(x + .2 + k * .07, y + .86 - h + .08, .035, .14);
+  ctx.fillStyle = '#9aa1aa'; ctx.fillRect(x + .44, y + .86 - h + .16, .13, .17);
+  ctx.save(); ctx.translate(x + .505, y + .86 - h + .245); ctx.rotate(occ[me] || t.done ? Math.PI / 2 : 0); ctx.fillStyle = '#1b1b1b'; ctx.fillRect(-.018, -.055, .036, .11); ctx.restore();
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(x + .13, y + .84 - h, .74, .03);
 }
 function plankBox(x, y, w, d, h, horiz) {
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(x + .05, y + .07, w, d);
@@ -221,13 +240,12 @@ function carDraw() {
   rr(x + .95, y + .28 - h, 2.1, d - .56, .15, '#aeb7c2');
   ctx.fillStyle = '#121720'; ctx.fillRect(x + .72, y + .3 - h, .22, d - .6); ctx.fillRect(x + 3.06, y + .3 - h, .18, d - .6);
   ctx.fillStyle = '#1c4fb0'; ctx.fillRect(x + .3, y + .18 - h, .35, d - .4);
-  const on = endgame || tasks.find(t => t.type === 'radio').done;
+  const rt = tasks.find(t => t.type === 'radio'), on = endgame || (rt && rt.done);
   const blink = on ? (Math.sin(T * 12) > 0) : false;
   rr(x + 1.62, y + .72 - h, .76, .24, .06, '#1a1d24');
   rr(x + 1.66, y + .75 - h, .32, .18, .05, blink ? '#8fb6ff' : '#233a6e');
   rr(x + 2.02, y + .75 - h, .32, .18, .05, !blink && on ? '#8fb6ff' : '#233a6e');
-  const rt = tasks.find(t => t.type === 'radio');
-  circ(rt.x + .5, y + .15 - h, .07, rt.done ? '#7dff9a' : '#ff3b3b');
+  if (rt) circ(rt.x + .5, y + .15 - h, .07, rt.done ? '#7dff9a' : '#ff3b3b');
 }
 function drawTile(x, y) {
   const c = ch(x, y);
@@ -244,6 +262,7 @@ function drawTile(x, y) {
     case 'G': genTile(x, y); break;
     case 'F': fuseTile(x, y); break;
     case 'V': valveTile(x, y); break;
+    case 'Y': duoTile(x, y); break;
     case 'P': palletTile(x, y); break;
     case 'C': case 'R': if (x === car.x0 && y === car.y1) carDraw(); break;
     case 'E': { const g = gateAt[I(x, y)]; if (g.x0 === x) gateDraw(g); break; }

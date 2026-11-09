@@ -29,3 +29,6 @@ const CFG = {
   markLife: 6, markStep: 0.38,
   genTime: 14, valveTime: 6,
 };
+
+/* Kartenregister: js/maps/*.js tragen sich hier ein (MAPS[id] = {...}), js/map.js lädt sie */
+const MAPS = {};

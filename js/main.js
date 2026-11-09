@@ -122,7 +122,8 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 window.__ns = {
-  get S() { return S; }, get K() { return K; }, get Q() { return Q; }, get state() { return state; }, get act() { return actNow; },
+  get S() { return S; }, get K() { return K; }, get SV() { return SV; }, get mode() { return MODE; }, get map() { return MAPID; },
+  MAPS, loadMap, useMap, startTeam, taskPoints, get need() { return NEED; }, get Q() { return Q; }, get state() { return state; }, get act() { return actNow; },
   tasks, pallets, windows, lockers, hooks, gates, findPath, ch, startGame, caught, stains, killerVisible, killerSees,
   tp(x, y) { S.x = x; S.y = y; }, ktp(x, y) { K.x = x; K.y = y; K.path = null; K.goal = null; K.act = null; },
   finish(n = tasks.length) { tasks.slice(0, n).forEach(t => { if (!t.done) complete(t); }); },

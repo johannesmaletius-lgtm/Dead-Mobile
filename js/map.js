@@ -1,71 +1,62 @@
 'use strict';
-/* Dead Mobile – Karte: Raster, Räume, Objekte, Lampen, Spawns, Kollision, Sichtlinie, A* */
+/* Dead Mobile – Karte: Lader, Räume/Masken, Objekte, Kollision, Sichtlinie, A* */
 /* ================= Karte =================
    # Wand  T Baum  W Fenster  D Tür  P Palette  t Tisch  k Theke  B Regal/Tribüne  O Kessel
-   L Spind  H Haken  G Aggregat  F Sicherungskasten  V Ventil  R Funk (Streifenwagen C)  E Tor
-   1–9 Raum-Marker */
-const MAP = [
-"TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-"TTTTTTTTTTTTTTTTTTTTTEETTTTTTTTTTTTTTTTTTTTTTT",
-"T.9.........................T................T",
-"T...............TT..........T.......H........T",
-"T.......G.......T...........T................T",
-"T......................T....P...........T....T",
-"T..TT.......T...............T..........TT....T",
-"T...T.......P...............T....T...........T",
-"T...........T................................T",
-"######W############D###########W#########D####",
-"#........tt..#........tt.#...................#",
-"#1...........#2..........#........G..........#",
-"#.tt.tt..tt..#.tt.tt..tt.#..................4#",
-"#............W...........W...................#",
-"#.ttPtt..tt..#.tt.ttPttt.#....B.BBBBBBB.B....#",
-"#............#...........#....BPBBBBBBBPB....#",
-"#L...........#..........L#....B.BBBBBBB.B....#",
-"#####D##############D#####...................#",
-"#.......LL..L.........LL.#...................#",
-"#3..........P............D.................H.#",
-"#...........L..LL........#L..................#",
-"####D############D##################D#########",
-"#............5#L....#.......................L#",
-"#F............#.....#..BBBB..........B.......#",
-"#kkkPkk.tt.tt.#B....#........OOOO....B...BBB.#",
-"#.......tt.tt.#B....D........OOOOV...P.......#",
-"#.............#.6...#..BBBB..OOOO....B.......#",
-"#..tt.tt.tt...#...BB#................B.......#",
-"#H............#L....#L......................7#",
-"########W###D###############W###########D#####",
-"T............................................T",
-"T.............................T...........T..T",
-"T........TT.....CRCC..........T.......H......T",
-"T.........T.....CCCC..........P..............T",
-"T..T....H.....................T......TT......T",
-"T.............................T..............T",
-"T8...........................................T",
-"TTTTTTTTTTTTTTTTTTTTTTTTEETTTTTTTTTTTTTTTTTTTT"
-];
-const ROOMS = {
-  1: { f: 'wood', amb: .56 },  2: { f: 'wood', amb: .56 },  3: { f: 'lino', amb: .54 },
-  4: { f: 'gym', amb: .6 },  5: { f: 'tiles', amb: .56 }, 6: { f: 'concrete', amb: .5 },
-  7: { f: 'cellar', amb: .5 }, 8: { f: 'asphalt', amb: .64, out: 1 }, 9: { f: 'grass', amb: .64, out: 1 },
-};
-const W = MAP[0].length, H = MAP.length, N = W * H;
-const G = MAP.map(r => r.split(''));
+   L Spind  H Haken  G Aggregat  F Sicherungskasten  V Ventil  R Funk (Streifenwagen C)  E Tor  Y Duo-Station
+   1–9, a–f Raum-Marker (Räume 1–15). Karten stehen in js/maps/*.js, loadMap(id) baut alles neu auf. */
+let MAPID = '', MAPDEF = null, ROOMS = {}, W = 0, H = 0, N = 0, NR = 0, NEED = 0, G = [];
 const ch = (x, y) => (x < 0 || y < 0 || x >= W || y >= H) ? 'T' : G[y][x];
 const I = (x, y) => y * W + x;
 const D4 = [[0, 1], [1, 0], [-1, 0], [0, -1]];
 const D8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 const WALLISH = c => c === '#' || c === 'W';
 const TALL = new Set(['#', 'T', 'B', 'O', 'L', 'C', 'R', 'E']);
-const OBJH = { '#': .6, W: .6, T: 1.05, B: 1.1, O: 1.3, L: 1.3, H: 1.9, E: 1.6, C: .7, R: .7, F: 1.05, G: .95, V: .7, t: .38, k: .5, P: 1.05 };
+const OBJH = { '#': .6, W: .6, T: 1.05, B: 1.1, O: 1.3, L: 1.3, H: 1.9, E: 1.6, C: .7, R: .7, F: 1.05, G: .95, V: .7, t: .38, k: .5, P: 1.05, Y: 1.05 };
 const WH = 0.55; // sichtbare Wandhöhe
+const roomId = c => c >= '1' && c <= '9' ? +c : c >= 'a' && c <= 'f' ? c.charCodeAt(0) - 87 : 0;
+/* Standardwerte je Bodenart (für Karten, die nur den Boden angeben) */
+const FLOOR_AMB = { wood: .56, lino: .54, gym: .6, tiles: .56, concrete: .5, cellar: .5, asphalt: .64, grass: .64 };
+const FLOOR_WALL = { lino: 'poster', gym: 'gym', tiles: 'tile', concrete: 'pipe', cellar: 'pipe' };
 
-const room = new Int8Array(N);
-(function flood() {
+let room = new Int8Array(0), mask = new Uint16Array(0), lmask = new Uint16Array(0);
+function floorRoom(x, y) { const r = room[I(x, y)]; if (r) return r; for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < H && room[I(nx, ny)]) return room[I(nx, ny)]; } return 0; }
+const stSolid = (x, y) => { const c = ch(x, y); return !(c === '.' || c === 'D' || c === 'P'); };
+const firstBit = m => { for (let r = 1; r <= NR; r++) if (m & (1 << r)) return r; return 0; };
+
+/* Objekte aus der Karte (Arrays bleiben dieselben, werden beim Laden geleert) */
+const tasks = [], pallets = [], windows = [], lockers = [], hooks = [], gates = [], openings = [], boilers = [];
+let palletAt = {}, windowAt = {}, lockerAt = {}, taskAt = {}, hookAt = {}, gateAt = {}, boilerAt = {};
+const car = { x0: 1e9, y0: 1e9, x1: 0, y1: 0, has: false, room: 0 };
+let roomFloor = {}, LAMPS = [], SPAWNS = [];
+function freeNeighbor(x, y) {
+  for (const [dx, dy] of [[0, 1], [1, 0], [-1, 0], [0, -1]]) { const c = ch(x + dx, y + dy); if (c === '.' || c === 'D') return { x: x + dx + .5, y: y + dy + .5 }; }
+  return { x: x + .5, y: y + 1.5 };
+}
+const axisAt = (x, y) => (stSolid(x - 1, y) && stSolid(x + 1, y)) ? { x: 0, y: 1 } : { x: 1, y: 0 };
+const TASK_T = { G: 'gen', F: 'fuse', V: 'valve', R: 'radio' };
+const TASK_ORDER = ['gen', 'fuse', 'radio', 'valve', 'duo'];
+const taskAura = (c, x, y) => c === 'R' ? { x: x - .15, y: y - .95, w: 1.3, h: 1.25 } : c === 'F' ? { x: x + .12, y: y - .75, w: .76, h: 1.6 } : { x: x + .02, y: y - .62, w: .96, h: 1.55 };
+/* Räume mit Boden (für Zufallsziele) */
+const allRooms = () => { const a = []; for (let r = 1; r <= NR; r++) if (roomFloor[r] && roomFloor[r].length) a.push(r); return a; };
+/* Erledigte Aufgabenpunkte (Duo zählt doppelt) */
+const taskPoints = () => tasks.reduce((s, t) => s + (t.done ? t.points : 0), 0);
+
+function loadMap(id) {
+  const def = MAPS[id]; if (!def) throw new Error('Unbekannte Karte: ' + id);
+  MAPID = id; MAPDEF = def;
+  G = def.grid.map(r => r.split('')); W = G[0].length; H = G.length; N = W * H;
+  // Räume
+  ROOMS = {};
+  for (const k in def.rooms) {
+    const d = def.rooms[k], f = d.f || d.floor || 'concrete', out = d.out || d.outside ? 1 : 0;
+    ROOMS[roomId(String(k))] = Object.assign({}, d, { f, out, amb: d.amb != null ? d.amb : (out ? .64 : FLOOR_AMB[f] || .55), wall: d.wall !== undefined ? d.wall : (out ? null : FLOOR_WALL[f] || null) });
+  }
+  room = new Int8Array(N); NR = 0;
   const block = '#DWE';
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const c = G[y][x]; if (c < '1' || c > '9') continue;
-    const id = +c, st = [I(x, y)]; room[I(x, y)] = id;
+    const id = roomId(G[y][x]); if (!id) continue;
+    NR = Math.max(NR, id);
+    const st = [I(x, y)]; room[I(x, y)] = id;
     while (st.length) {
       const i = st.pop(), px = i % W, py = (i / W) | 0;
       for (const [dx, dy] of D4) {
@@ -76,77 +67,86 @@ const room = new Int8Array(N);
       }
     }
   }
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (G[y][x] >= '1' && G[y][x] <= '9') G[y][x] = '.';
-})();
-const mask = new Uint16Array(N), lmask = new Uint16Array(N);
-for (let i = 0; i < N; i++) if (room[i]) mask[i] = 1 << room[i];
-for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-  const i = I(x, y);
-  if (G[y][x] === 'D') for (const [dx, dy] of D4) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < H && room[I(nx, ny)]) mask[i] |= 1 << room[I(nx, ny)]; }
-}
-for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-  const i = I(x, y); lmask[i] = mask[i];
-  if (!mask[i]) for (const [dx, dy] of D8) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < H && room[I(nx, ny)]) lmask[i] |= 1 << room[I(nx, ny)]; }
-}
-function floorRoom(x, y) { const r = room[I(x, y)]; if (r) return r; for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < H && room[I(nx, ny)]) return room[I(nx, ny)]; } return 0; }
-const stSolid = (x, y) => { const c = ch(x, y); return !(c === '.' || c === 'D' || c === 'P'); };
-const firstBit = m => { for (let r = 1; r <= 9; r++) if (m & (1 << r)) return r; return 0; };
-
-/* Objekte aus der Karte */
-const tasks = [], pallets = [], windows = [], lockers = [], hooks = [], gates = [], openings = [];
-const palletAt = {}, windowAt = {}, lockerAt = {}, taskAt = {}, hookAt = {}, gateAt = {};
-const car = { x0: 99, y0: 99, x1: 0, y1: 0 };
-const roomFloor = {}; for (let r = 1; r <= 9; r++) roomFloor[r] = [];
-function freeNeighbor(x, y) {
-  for (const [dx, dy] of [[0, 1], [1, 0], [-1, 0], [0, -1]]) { const c = ch(x + dx, y + dy); if (c === '.' || c === 'D') return { x: x + dx + .5, y: y + dy + .5 }; }
-  return { x: x + .5, y: y + 1.5 };
-}
-const axisAt = (x, y) => (stSolid(x - 1, y) && stSolid(x + 1, y)) ? { x: 0, y: 1 } : { x: 1, y: 0 };
-const TASK_T = { G: 'gen', F: 'fuse', V: 'valve', R: 'radio' };
-for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-  const c = G[y][x], i = I(x, y);
-  if (c === '.' && room[i]) roomFloor[room[i]].push(i);
-  if (TASK_T[c]) {
-    const t = { type: TASK_T[c], x, y, cx: x + .5, cy: y + .5, prog: 0, done: false, room: room[i] };
-    const a = freeNeighbor(x, y); t.ax = a.x; t.ay = a.y;
-    t.aura = c === 'R' ? { x: x - .15, y: y - .95, w: 1.3, h: 1.25 } : c === 'F' ? { x: x + .12, y: y - .75, w: .76, h: 1.6 } : { x: x + .02, y: y - .62, w: .96, h: 1.55 };
-    tasks.push(t); taskAt[i] = t;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (roomId(G[y][x])) G[y][x] = '.';
+  mask = new Uint16Array(N); lmask = new Uint16Array(N);
+  for (let i = 0; i < N; i++) if (room[i]) mask[i] = 1 << room[i];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = I(x, y);
+    if (G[y][x] === 'D') for (const [dx, dy] of D4) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < H && room[I(nx, ny)]) mask[i] |= 1 << room[I(nx, ny)]; }
   }
-  if (c === 'P') { const p = { x, y, cx: x + .5, cy: y + .5, ax: axisAt(x, y), state: 0 }; pallets.push(p); palletAt[i] = p; }
-  if (c === 'W') { const w = { x, y, cx: x + .5, cy: y + .5, ax: axisAt(x, y), blockedUntil: 0, vaults: [] }; windows.push(w); windowAt[i] = w; }
-  if (c === 'L') {
-    let f = null;
-    for (const [dx, dy] of [[0, 1], [0, -1], [-1, 0], [1, 0]]) { if (ch(x + dx, y + dy) === '.') { f = { x: x + dx + .5, y: y + dy + .5 }; break; } }
-    const L = { x, y, cx: x + .5, cy: y + .5, front: f || freeNeighbor(x, y), anim: 0, known: false };
-    lockers.push(L); lockerAt[i] = L;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = I(x, y); lmask[i] = mask[i];
+    if (!mask[i]) for (const [dx, dy] of D8) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < H && room[I(nx, ny)]) lmask[i] |= 1 << room[I(nx, ny)]; }
   }
-  if (c === 'H') { const h = { x, y, cx: x + .5, cy: y + .5, front: freeNeighbor(x, y) }; hooks.push(h); hookAt[i] = h; }
-  if (c === 'C' || c === 'R') { car.x0 = Math.min(car.x0, x); car.y0 = Math.min(car.y0, y); car.x1 = Math.max(car.x1, x); car.y1 = Math.max(car.y1, y); }
-  if (c === 'E') {
-    let g = gates.find(g => g.y === y && Math.abs(g.x1 + 1 - x) < 1);
-    if (!g) { g = { x0: x, x1: x, y, open: 0, north: y < H / 2 }; gates.push(g); } else g.x1 = x;
-    gateAt[i] = g;
+  // Objekte
+  for (const a of [tasks, pallets, windows, lockers, hooks, gates, openings, boilers]) a.length = 0;
+  palletAt = {}; windowAt = {}; lockerAt = {}; taskAt = {}; hookAt = {}; gateAt = {}; boilerAt = {};
+  Object.assign(car, { x0: 1e9, y0: 1e9, x1: 0, y1: 0, has: false, room: 0 });
+  roomFloor = {}; for (let r = 1; r <= NR; r++) roomFloor[r] = [];
+  const duo = [];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const c = G[y][x], i = I(x, y);
+    if (c === '.' && room[i]) roomFloor[room[i]].push(i);
+    if (TASK_T[c]) {
+      const t = { type: TASK_T[c], x, y, cx: x + .5, cy: y + .5, prog: 0, done: false, room: room[i], points: 1 };
+      const a = freeNeighbor(x, y); t.ax = a.x; t.ay = a.y;
+      t.aura = taskAura(c, x, y);
+      tasks.push(t); taskAt[i] = t;
+    }
+    if (c === 'Y') { const a = freeNeighbor(x, y); duo.push({ x, y, cx: x + .5, cy: y + .5, ax: a.x, ay: a.y, aura: taskAura(c, x, y), room: room[i] }); }
+    if (c === 'P') { const p = { x, y, cx: x + .5, cy: y + .5, ax: axisAt(x, y), state: 0 }; pallets.push(p); palletAt[i] = p; }
+    if (c === 'W') { const w = { x, y, cx: x + .5, cy: y + .5, ax: axisAt(x, y), blockedUntil: 0, vaults: [] }; windows.push(w); windowAt[i] = w; }
+    if (c === 'L') {
+      let f = null;
+      for (const [dx, dy] of [[0, 1], [0, -1], [-1, 0], [1, 0]]) { if (ch(x + dx, y + dy) === '.') { f = { x: x + dx + .5, y: y + dy + .5 }; break; } }
+      const L = { x, y, cx: x + .5, cy: y + .5, front: f || freeNeighbor(x, y), anim: 0, known: false };
+      lockers.push(L); lockerAt[i] = L;
+    }
+    if (c === 'H') { const h = { x, y, cx: x + .5, cy: y + .5, front: freeNeighbor(x, y) }; hooks.push(h); hookAt[i] = h; }
+    if (c === 'C' || c === 'R') { car.has = true; car.x0 = Math.min(car.x0, x); car.y0 = Math.min(car.y0, y); car.x1 = Math.max(car.x1, x); car.y1 = Math.max(car.y1, y); }
+    if (c === 'E') {
+      let g = gates.find(g => g.y === y && Math.abs(g.x1 + 1 - x) < 1);
+      if (!g) { g = { x0: x, x1: x, y, open: 0, north: y < H / 2 }; gates.push(g); } else g.x1 = x;
+      gateAt[i] = g;
+    }
+    if (c === 'O' && !boilerAt[i]) {
+      // Kesselblock: zusammenhängende O-Kacheln; Feuerloch unten mittig, Schornstein oben links
+      const b = { x0: x, y0: y, x1: x, y1: y }, st = [i]; boilerAt[i] = b;
+      while (st.length) {
+        const j = st.pop(), px = j % W, py = (j / W) | 0;
+        b.x0 = Math.min(b.x0, px); b.x1 = Math.max(b.x1, px); b.y0 = Math.min(b.y0, py); b.y1 = Math.max(b.y1, py);
+        for (const [dx, dy] of D4) { const nx = px + dx, ny = py + dy, k = I(nx, ny); if (ch(nx, ny) === 'O' && !boilerAt[k]) { boilerAt[k] = b; st.push(k); } }
+      }
+      b.fc = Math.round((b.x0 + b.x1 + 1) / 2); boilers.push(b);
+    }
+    if (c === 'D' || c === 'W') {
+      const ax = axisAt(x, y), sides = [];
+      for (const s of [-1, 1]) { const nx = x + ax.x * s, ny = y + ax.y * s, r = room[I(nx, ny)]; if (r) sides.push({ r, x: x + .5 + ax.x * s * .55, y: y + .5 + ax.y * s * .55 }); }
+      for (const sd of sides) { sd.x = x + .5 + (sd.x - x - .5) * 1.5; sd.y = y + .5 + (sd.y - y - .5) * 1.5; }
+      if (sides.length === 2) openings.push({ cx: x + .5, cy: y + .5, sides });
+    }
   }
-  if (c === 'D' || c === 'W') {
-    const ax = axisAt(x, y), sides = [];
-    for (const s of [-1, 1]) { const nx = x + ax.x * s, ny = y + ax.y * s, r = room[I(nx, ny)]; if (r) sides.push({ r, x: x + .5 + ax.x * s * .55, y: y + .5 + ax.y * s * .55 }); }
-    for (const sd of sides) { sd.x = x + .5 + (sd.x - x - .5) * 1.5; sd.y = y + .5 + (sd.y - y - .5) * 1.5; }
-    if (sides.length === 2) openings.push({ cx: x + .5, cy: y + .5, sides });
+  if (car.has) car.room = room[I(car.x0, car.y0)];
+  // Duo-Aufgabe: zwei Stationen, die nur gemeinsam vorankommen, zählt doppelt
+  if (duo.length === 2) {
+    const [a, b] = duo, t = { type: 'duo', x: a.x, y: a.y, cx: (a.cx + b.cx) / 2, cy: (a.cy + b.cy) / 2, ax: a.ax, ay: a.ay, aura: a.aura, prog: 0, done: false, room: a.room, points: 2, stations: duo };
+    duo.forEach(s => { s.task = t; taskAt[I(s.x, s.y)] = t; });
+    tasks.push(t);
   }
+  tasks.sort((a, b) => TASK_ORDER.indexOf(a.type) - TASK_ORDER.indexOf(b.type));
+  NEED = def.need || tasks.reduce((s, t) => s + t.points, 0);
+  // Lampen: Objekte {x,y,r,a,fl,red} oder Kurzform [x, y, r, 'warm'|'red']
+  LAMPS = (def.lamps || []).map((L, k) => Array.isArray(L) ? { x: L[0], y: L[1], r: L[2] || 3.2, a: L[3] === 'red' ? .5 : .62, fl: [.1, 0, .4, .2, .6][k % 5], red: L[3] === 'red' ? 1 : 0 } : Object.assign({}, L));
+  LAMPS.forEach(L => L.room = room[I(L.x | 0, L.y | 0)]);
+  // Startpunkte: s = erster Survivor, ss = alle drei, k = Killer
+  SPAWNS = (def.spawns || []).map(sp => {
+    const ss = sp.survivors || (Array.isArray(sp.s[0]) ? sp.s : [sp.s]);
+    return { s: ss[0], ss, k: sp.killer || sp.k };
+  });
+  // A*-Puffer
+  gS = new Float32Array(N); par = new Int32Array(N); seen = new Uint32Array(N); shut = new Uint32Array(N); stampN = 0;
+  if (typeof onMapLoaded === 'function') onMapLoaded();
 }
-const TASK_ORDER = ['gen', 'fuse', 'radio', 'valve'];
-tasks.sort((a, b) => TASK_ORDER.indexOf(a.type) - TASK_ORDER.indexOf(b.type));
-const LAMPS = [
-  { x: 6.5, y: 19.3, r: 3.3, a: .7, fl: .15 }, { x: 19.5, y: 19.3, r: 3.3, a: .7, fl: 0 },
-  { x: 35.5, y: 12.5, r: 5, a: .6, fl: .5 }, { x: 7, y: 23, r: 3.6, a: .6, fl: .1 },
-  { x: 27, y: 25.5, r: 3.8, a: .55, fl: .3, red: 1 }, { x: 17.5, y: 23.6, r: 2.4, a: .6, fl: .6 },
-  { x: 41.5, y: 25, r: 3, a: .4, fl: .7, red: 1 },
-];
-LAMPS.forEach(L => L.room = room[I(L.x | 0, L.y | 0)]);
-const SPAWNS = [
-  { s: [2.5, 11.5], k: [42.5, 27.5] }, { s: [10.5, 22.5], k: [42.5, 11.5] },
-  { s: [3.5, 3.5], k: [41.5, 34.5] }, { s: [21.5, 26.5], k: [5.5, 3.5] },
-];
 
 /* Dynamische Begehbarkeit */
 function solidAt(tx, ty) {
@@ -203,7 +203,7 @@ function losClear(x0, y0, x1, y1) {
 }
 
 /* A* für den Killer (Fenster = Sprung, liegende Palette = zerbrechen) */
-const gS = new Float32Array(N), par = new Int32Array(N), seen = new Uint32Array(N), shut = new Uint32Array(N);
+let gS = new Float32Array(0), par = new Int32Array(0), seen = new Uint32Array(0), shut = new Uint32Array(0);
 let stampN = 0; const HP = [], HF = [];
 function hpush(i, f) { HP.push(i); HF.push(f); let k = HP.length - 1; while (k > 0) { const p = (k - 1) >> 1; if (HF[p] <= HF[k]) break; [HP[p], HP[k]] = [HP[k], HP[p]]; [HF[p], HF[k]] = [HF[k], HF[p]]; k = p; } }
 function hpop() {
@@ -211,14 +211,17 @@ function hpop() {
   if (HP.length) { HP[0] = li; HF[0] = lf; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < HP.length && HF[l] < HF[m]) m = l; if (r < HP.length && HF[r] < HF[m]) m = r; if (m === k) break; [HP[m], HP[k]] = [HP[k], HP[m]]; [HF[m], HF[k]] = [HF[k], HF[m]]; k = m; } }
   return top;
 }
-function kc(x, y) { const c = ch(x, y); if (c === '.' || c === 'D') return 1; if (c === 'P') return palletAt[I(x, y)].state === 1 ? 3 : 1; if (c === 'W') return 2; return 0; }
+let kcS = false; // Pfad für Survivors: gesperrte Fenster sind zu
+function kc(x, y) { const c = ch(x, y); if (c === '.' || c === 'D') return 1; if (c === 'P') return palletAt[I(x, y)].state === 1 ? 3 : 1; if (c === 'W') return kcS && T < windowAt[I(x, y)].blockedUntil ? 0 : 2; return 0; }
 const axisOf = (x, y) => (windowAt[I(x, y)] || palletAt[I(x, y)]).ax;
 function nearestWalk(x, y) {
   if (kc(x, y) === 1) return [x, y];
   for (let r = 1; r <= 3; r++) { let best = null, bd = 1e9; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { if (kc(x + dx, y + dy) === 1) { const d = dx * dx + dy * dy; if (d < bd) { bd = d; best = [x + dx, y + dy]; } } } if (best) return best; }
   return null;
 }
-function findPath(sx, sy, gx, gy) {
+/* cw/cp: Zusatzkosten für Fenster/liegende Paletten (Killer teuer, Survivors springen billig) */
+function findPath(sx, sy, gx, gy, cw = CFG.costWin, cp = CFG.costPal, surv = false) {
+  kcS = surv;
   const s0 = nearestWalk(sx, sy), g0 = nearestWalk(gx, gy); if (!s0 || !g0) return null;
   const s = I(s0[0], s0[1]), g = I(g0[0], g0[1]); if (s === g) return [g];
   stampN++; HP.length = 0; HF.length = 0;
@@ -234,7 +237,7 @@ function findPath(sx, sy, gx, gy) {
       if (nk > 1) { if (diag) continue; const a = axisOf(nx, ny); if (!((dx === a.x && dy === a.y) || (dx === -a.x && dy === -a.y))) continue; }
       if (diag && (nk !== 1 || kc(x + dx, y) !== 1 || kc(x, y + dy) !== 1)) continue;
       const j = I(nx, ny); if (shut[j] === stampN) continue;
-      const cost = gS[i] + (diag ? 1.414 : 1) + (nk === 2 ? CFG.costWin : nk === 3 ? CFG.costPal : 0);
+      const cost = gS[i] + (diag ? 1.414 : 1) + (nk === 2 ? cw : nk === 3 ? cp : 0);
       if (seen[j] !== stampN || cost < gS[j]) {
         seen[j] = stampN; gS[j] = cost; par[j] = i;
         const hx = Math.abs(nx - g0[0]), hy = Math.abs(ny - g0[1]);
@@ -245,3 +248,5 @@ function findPath(sx, sy, gx, gy) {
   if (seen[g] !== stampN) return null;
   const path = []; for (let i = g; i !== s; i = par[i]) path.push(i); path.reverse(); return path;
 }
+
+loadMap('schule');

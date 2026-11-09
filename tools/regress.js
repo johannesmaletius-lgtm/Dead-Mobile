@@ -11,6 +11,8 @@ async function run(file, dir) {
   await p.addInitScript(() => {
     let s = 12345; Math.random = () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
     window.requestAnimationFrame = () => 0;
+    // Kein Ton: die Musik-Planung hängt an der echten Audio-Uhr und würde den Zufall verschieben
+    window.AudioContext = window.webkitAudioContext = undefined;
   });
   await p.goto('file://' + path.resolve(file) + '#test');
   const shots = [], out = [];
@@ -24,6 +26,9 @@ async function run(file, dir) {
   await stepIt('chase', () => { const n = window.__ns, S = n.S; n.ktp(S.x + 3, S.y); n.tick(12); });
   await stepIt('endgame', () => { const n = window.__ns; n.finish(); n.tick(3); });
   await stepIt('caught', () => { const n = window.__ns; n.caught(); n.tick(8); });
+  await stepIt('pallet', () => { const n = window.__ns, p = n.pallets[0]; n.startGame(); n.tick(.1); n.tp(p.cx + p.ax.x * .8, p.cy + p.ax.y * .8); n.ktp(p.cx - p.ax.x * .25, p.cy - p.ax.y * .25); n.tick(.05); n.down(); n.up(); n.tick(3); });
+  await stepIt('locker', () => { const n = window.__ns, L = n.lockers[2]; n.startGame(); n.tick(.1); n.tp(L.front.x, L.front.y); n.tick(.05); n.down(); n.up(); n.tick(1); n.ktp(L.front.x + 2, L.front.y); n.K.mode = 'chase'; n.K.seenT = 0; n.tick(10); });
+  await stepIt('escape', () => { const n = window.__ns, g = n.gates[1]; n.startGame(); n.finish(); n.tick(3); n.ktp(2.5, 3.5); n.tp(g.x0 + 1, g.y - 1.6); n.keys.d = 1; n.tick(1.5); n.keys.d = 0; n.tick(2); });
   await stepIt('tutorial', () => { const n = window.__ns; document.querySelector('#tutBtn').click(); n.tick(1); n.keys.r = 1; n.tick(1.2); n.keys.r = 0; n.tick(1); });
   await b.close();
   return { out, shots, errs };

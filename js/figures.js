@@ -124,17 +124,17 @@ function drawHuman(x, y, o) {
   if (f === 1 || f === 3) sideBody(L, o, sw); else frontBody(L, o, sw, f === 2);
   ctx.restore();
 }
-function drawSurv() {
+function drawSurv(sv = S) {
   let pose = null, lie = 0;
-  if (S.work) pose = 'work';
-  if (state === 'caught' && seq.phase === 'hit') lie = Math.PI / 2 * Math.min(1, seq.t * 5);
-  if (S.burst > 0 && S.moving) {
-    const a = S.burst / CFG.burstT, bx = -Math.cos(S.dir), by = -Math.sin(S.dir);
+  if (sv.work) pose = 'work';
+  if (sv === S && state === 'caught' && seq.phase === 'hit') lie = Math.PI / 2 * Math.min(1, seq.t * 5);
+  if (sv.burst > 0 && sv.moving) {
+    const a = sv.burst / CFG.burstT, bx = -Math.cos(sv.dir), by = -Math.sin(sv.dir);
     ctx.strokeStyle = `rgba(235,231,220,${.35 * a})`; ctx.lineWidth = .04; ctx.lineCap = 'round'; ctx.beginPath();
-    for (let k = -1; k <= 1; k++) { const ox = -by * k * .2, oy = bx * k * .2 - .6; ctx.moveTo(S.x + ox + bx * .35, S.y + oy + by * .35); ctx.lineTo(S.x + ox + bx * (1 + Math.random() * .4), S.y + oy + by * (1 + Math.random() * .4)); }
+    for (let k = -1; k <= 1; k++) { const ox = -by * k * .2, oy = bx * k * .2 - .6; ctx.moveTo(sv.x + ox + bx * .35, sv.y + oy + by * .35); ctx.lineTo(sv.x + ox + bx * (1 + Math.random() * .4), sv.y + oy + by * (1 + Math.random() * .4)); }
     ctx.stroke();
   }
-  drawHuman(S.x, S.y, { look: 'cop', dir: S.dir, moving: S.moving, walk: S.walk, z: S.z, pose, lie, hurt: S.hp < 2, shake: S.flinch > 0 ? .03 : 0 });
+  drawHuman(sv.x, sv.y, { look: skinOf(sv), dir: sv.dir, moving: sv.moving, walk: sv.walk, z: sv.z, pose, lie: lie || sv.lie || 0, hurt: sv.hp < 2, shake: sv.flinch > 0 ? .03 : 0 });
 }
 function drawKiller() {
   const a = K.act; let pose = null, face = null;
@@ -142,7 +142,8 @@ function drawKiller() {
   if (state === 'caught' && seq.phase === 'lift') pose = 'lunge';
   if (state === 'caught' && seq.phase === 'hung' && seq.t > .6) face = 0;
   drawHuman(K.x, K.y, { look: 'killer', dir: K.dir, moving: K.moving, walk: K.walk, z: K.z, pose, face });
-  if (S && S.carried) drawHuman(K.x + .42, K.y, { look: 'cop', face: 0, lie: -Math.PI / 2, z: .8, noShadow: true, moving: true, walk: T * 3 });
+  const cs = SV.find(s => s.carried);
+  if (cs) drawHuman(K.x + .42, K.y, { look: skinOf(cs), face: 0, lie: -Math.PI / 2, z: .8, noShadow: true, moving: true, walk: T * 3 });
   if (a && a.kind === 'stun') { for (let i = 0; i < 3; i++) { const an = T * 5 + i * TAU / 3; circ(K.x + Math.cos(an) * .25, K.y - 1.42 + Math.sin(an) * .08, .04, 'rgba(255,240,200,.9)'); } }
   if (a && a.kind === 'lunge' && a.t > a.dur * .5) {
     ctx.strokeStyle = `rgba(255,255,255,${.7 * (1 - a.t / a.dur)})`; ctx.lineWidth = .06;

@@ -76,11 +76,13 @@ function fail(t, pen) {
   eyeT = T; stats.fails++;
   noise(t.cx, t.cy, 99, true);
 }
-function complete(t) {
+function complete(t, sv = S) {
   qteSeen.add(t.type);
-  t.done = true; t.prog = 1; S.work = null; Q = null;
+  t.done = true; t.prog = 1;
+  for (const v of SV) if (v.work === t) { v.work = null; if (v === S) Q = null; }
   SFX.done();
   for (let i = 0; i < 20; i++) parts.push({ x: t.cx, y: t.cy, z: .6, vx: rand(-1.2, 1.2), vy: rand(-1, 1), vz: rand(1, 3), g: 3, life: rand(.5, 1), max: 1, col: '255,225,140', sz: .05 });
   if (t.type === 'gen') noise(t.cx, t.cy, 16, false);
-  if (tasks.every(k => k.done)) { endgame = true; gatesPowered = true; SFX.siren(); noise(S.x, S.y, 99, true); }
+  // Genug Punkte (Duo zählt doppelt) → Tore bekommen Strom
+  if (!endgame && taskPoints() >= NEED) { endgame = true; gatesPowered = true; SFX.siren(); noise(sv.x, sv.y, 99, true); }
 }
