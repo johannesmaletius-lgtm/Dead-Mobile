@@ -61,14 +61,14 @@ function assignSkins(roster) {
   const used = new Set(roster.map(p => p.skin).filter(Boolean));
   return roster.map(p => p.skin || skinList().find(k => !used.has(k) && used.add(k)) || 'cop');
 }
-function startTeam(mapId = 'schule-team', roster) {
+function startTeam(mapId = 'schule-team', roster, spawnIdx) {
   A.init();
   useMap(mapId); MODE = 'team';
   TUT = null; endWon = false; toastMsg = null;
   resetWorld();
   roster = (roster || [{ kind: 'local', skin: save.skin }]).slice(0, 3);
   while (roster.length < 3) roster.push({ kind: 'bot' });
-  const skins = assignSkins(roster), sp = pick(SPAWNS);
+  const skins = assignSkins(roster), sp = spawnIdx != null ? SPAWNS[spawnIdx % SPAWNS.length] : pick(SPAWNS);
   SV = roster.map((p, i) => { const pos = sp.ss[i % sp.ss.length]; return newSurv(pos[0], pos[1], { id: p.id != null ? p.id : i, kind: p.kind, skin: skins[i], name: p.name || (typeof SKIN_NAMES !== 'undefined' && SKIN_NAMES[skins[i]]) || 'Überlebender ' + (i + 1) }); });
   S = SV.find(v => v.kind === 'local') || SV[0];
   K = newKiller(sp.k[0], sp.k[1]); K.lastContact = T;

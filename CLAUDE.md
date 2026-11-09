@@ -27,11 +27,13 @@ Plan und Spielregeln für den Mehrspieler-Ausbau: `docs/PLAN.md`. Kartenformat: 
 | `js/tiles.js` | Kacheln zeichnen (Wände, Möbel, Aufgaben, Paletten, Tore, Auto) |
 | `js/light.js` | Licht, Leuchten, `render()` setzt das Bild zusammen |
 | `js/hud.js` | Bildschirm-Ebenen, HUD, Aktionsknopf, QTE-Anzeige |
+| `js/net.js` | Netz: Räume, Spieler-IDs, Nachrichten (`Net`), Transport PeerJS bzw. BroadcastChannel |
+| `js/lobby.js` | Team-Menü und Lobby (`Lobby`): Name, Figur, Bots, Raum erstellen/beitreten, Start |
 | `js/main.js` | Eingabe (Touch/Tastatur), Bildschirme, Start, Spielschleife, Test-API `window.__ns` |
 
 ## Mehrere Überlebende (Stand Phase 1)
 - `SV` = alle Survivors, `S` = der eigene (Eingabe, Kamera, HUD), `MODE` = `'solo'` | `'team'`.
-  `startGame()` = Solo (unverändert), `startTeam(mapId, roster)` = Team mit 3 Plätzen (Bots füllen auf).
+  `startGame()` = Solo (unverändert), `startTeam(mapId, roster, spawnIdx?)` = Team mit 3 Plätzen (Bots füllen auf; `spawnIdx` online vom Host).
 - Fremde Survivors laufen über `updateOther(sv, dt)` → `sv.ctl(sv, dt)` (Bot-KI bzw. Netz setzt das).
 - Bewegung für beliebige Figuren: `goTo(e, x, y, spd, dt)` (A*, springt/zerbricht), `moveAgent`,
   `survMove(sv, inp, dt)`, `survMoved(sv, md, dt)` (Spuren, Blut, Tor). Aktionen nehmen den Survivor als
@@ -40,6 +42,26 @@ Plan und Spielregeln für den Mehrspieler-Ausbau: `docs/PLAN.md`. Kartenformat: 
 - Aufgaben haben `points` (Duo = 2, `t.stations`), Tore öffnen bei `taskPoints() >= NEED`.
 - Platzhalter für Phase 2 in `js/flow.js`: `downSurv`, `escapeSurv`, `teamCheckEnd`.
 - `viewer()` (wessen Sicht), `isWorked(t)`, `skinOf(sv)`, `inPlay(sv)` stehen in `js/state.js`.
+
+## Netz & Lobby (`js/net.js`, `js/lobby.js`)
+- Titel → **Team**: Name (`save.name`), Figur (`save.skin`), „Mit Bots spielen" (offline), „Raum erstellen",
+  Code + „Beitreten". Raum: Code (4 Buchstaben ohne I/O, Peer-ID `deadmobile-CODE`), 3 Plätze (leer = Bot),
+  Kartenwahl (alle `MAPS` mit `team: true`, `save.map`), „Starten" nur beim Host. Einladungslink `?join=CODE`.
+- Transport: PeerJS 1.5.5 (erst bei Bedarf von unpkg, sonst jsDelivr), zuverlässiger Kanal, `json`.
+  `?peer=host:port` = eigener Signalserver (unverschlüsselt, Pfad `/`). `?net=local` = BroadcastChannel (Tabs im selben Browser).
+- Stern: Host = ID 0, vergibt 1 und 2; Clients reden nur mit dem Host. Herzschlag 1/s, nach 6,5 s Stille „Verbindung verloren".
+- API: `Net.host({name, skin})` → Code, `Net.join(code, {name, skin})` → meine ID, `Net.send(msg, an?)` (Host: alle |
+  ID | [IDs]; Client: an den Host), `Net.on(t, fn(msg, von))`, `Net.off`, `Net.leave()`. Zustand: `Net.isHost`,
+  `Net.myId`, `Net.code`, `Net.peers` (alle im Raum inkl. mir: `{id, name, skin}`), `Net.active`, `Net.phase`
+  (`off|connecting|lobby|game`). Ereignisse über `Net.on`: `peers`, `join`(peer), `leave`(peer, grund), `close`(grund, text).
+- **Haken für die Synchronisierung:** `Net.onGameStart(fn({map, spawn, roster}))` läuft nach `startTeam` auf allen;
+  `Net.onGameEnd(fn(grund))` mit `back` (Host zurück in die Lobby), `left` (selbst verlassen), `hostleft`, `lost`.
+  Beide geben eine Abmeldefunktion zurück. Nachrichten > 4000 Zeichen werden automatisch gestückelt.
+- Nachrichtentypen: intern `hello` `welcome` `reject` `peers` `ping` `bye` `~` (reserviert, nicht selbst senden);
+  Lobby `lobby {map}`, `start {map, spawn, roster:[{id, name, skin, human}]}`, `back`. Alle rufen
+  `startTeam(map, roster, spawn)`; im Roster ist der eigene Eintrag `local`, andere Menschen `remote`, freie Plätze `bot`.
+- Im Team-Spiel: Pause zeigt „Zum Menü" bzw. online „Raum verlassen" statt Neustart; „Nochmal" bleibt im Team
+  (online: alle zurück in den Raum). Host weg → Meldung auf dem Titel. Teil 2 (Synchronisierung) fehlt noch.
 
 ## Karten prüfen und importieren
 `node tools/mapcheck.js js/maps/schule.js` prüft Karten. `node tools/mapcheck.js antwort.md --id name --write`
@@ -60,6 +82,11 @@ macht aus einer ChatGPT-Antwort (Format: `docs/KARTEN.md`) eine Kartendatei; dan
 NODE_PATH="$(npm root -g)" node tools/regress.js index.html /tmp/bilder
 # Vergleich mit dem letzten Commit (Solo/Tutorial müssen IDENTISCH bleiben):
 git worktree add /tmp/alt HEAD && NODE_PATH="$(npm root -g)" node tools/regress.js /tmp/alt/index.html index.html
+```
+Netz und Lobby (a: BroadcastChannel, b: echtes PeerJS mit lokalem Signalserver, c: offline mit Bots):
+```bash
+# <deps> enthält node_modules/peer (Server) und node_modules/peerjs; ohne --peer wird b übersprungen
+NODE_PATH="$(npm root -g)" node tools/nettest.js index.html --peer <deps> [--shots /tmp/netz] [--fonts <ordner>] [--only a,c]
 ```
 Mit `#test` in der URL wird nichts gespeichert. `window.__ns` ist die Test-API (`startGame`, `tick(sek)`,
 `tp`, `ktp`, `finish`, `caught`, `down`/`up`, `keys` …). Feste Zufallszahlen und eine abgeschaltete
