@@ -42,7 +42,7 @@ Plan und Spielregeln für den Mehrspieler-Ausbau: `docs/PLAN.md`. Kartenformat: 
 - `viewer()` (wessen Sicht), `isWorked(t)`, `skinOf(sv)`, `inPlay(sv)` stehen in `js/state.js`.
 
 ## Karten prüfen und importieren
-`node tools/mapcheck.js js/maps/schule.js` prüft Karten. `node tools/mapcheck.js antwort.md --id name --write`
+`node tools/mapcheck.js js/maps/schule.js` prüft Karten, `--selftest` testet den Import. `node tools/mapcheck.js antwort.md --id name --write`
 macht aus einer ChatGPT-Antwort (Format: `docs/KARTEN.md`) eine Kartendatei; danach in `index.html` eintragen.
 
 ## Regeln für Änderungen

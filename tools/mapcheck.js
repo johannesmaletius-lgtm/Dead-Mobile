@@ -1,6 +1,7 @@
 // Kartenprüfer und -import für Dead Mobile.
 //   Prüfen:     node tools/mapcheck.js js/maps/schule.js              (alle Karten der Datei)
-//   Import:     node tools/mapcheck.js antwort.md --id ferienlager      (ChatGPT-Antwort: Raster-Codeblock + JSON-Codeblock)
+//   Import:     node tools/mapcheck.js antwort.md --id ferienlager      (ChatGPT-Antwort: Raster + JSON, ```-Zeilen optional)
+//   Selbsttest: node tools/mapcheck.js --selftest
 //               … --write   schreibt js/maps/<id>.js (nur wenn keine Fehler)
 // Fehler (✗) machen die Karte unspielbar, Warnungen (!) sind Designhinweise. Exit-Code 1 bei Fehlern.
 'use strict';
@@ -164,16 +165,88 @@ function report(id, def) {
   return E.length;
 }
 
-/* ChatGPT-Antwort (Markdown) → Kartendefinition */
-function parseAnswer(txt) {
-  const blocks = [...txt.matchAll(/```([a-zA-Z]*)\n([\s\S]*?)```/g)].map(m => ({ lang: m[1], body: m[2] }));
-  const json = blocks.find(b => b.lang === 'json' || /^\s*\{/.test(b.body));
-  const grid = blocks.find(b => b !== json && /^[T#E]{10,}/m.test(b.body));
-  if (!grid || !json) throw new Error('Raster- oder JSON-Codeblock nicht gefunden');
-  const meta = JSON.parse(json.body);
-  const rows = grid.body.split('\n').map(r => r.replace(/\s+$/, '').replace(/^"|",?$/g, '')).filter(r => r.length);
+/* ChatGPT-Antwort (Markdown) → Kartendefinition.
+   Robust gegen Kopierfehler: ```-Zeilen dürfen fehlen, vor der ersten Rasterzeile darf Fremdtext kleben,
+   das JSON darf direkt an der letzten Rasterzeile hängen. */
+const GRID_CHARS = 'T#WD.PtkBOLHGFVRCEY123456789abcdef';
+const isGridLine = l => l.length >= 20 && [...l].every(c => GRID_CHARS.includes(c));
+const gridShare = l => l.length ? [...l].filter(c => GRID_CHARS.includes(c)).length / l.length : 0;
+const cleanLine = l => l.replace(/\s+$/, '').replace(/^\s*"/, '').replace(/",?$/, '');
+const fences = txt => [...txt.matchAll(/```([a-zA-Z]*)[ \t]*\r?\n([\s\S]*?)```/g)].map(m => ({ lang: m[1].toLowerCase(), body: m[2], start: m.index, end: m.index + m[0].length }));
+/* JSON: ```json-Block, sonst vom ersten { bis zur passenden } (Zeichenketten beachtet) */
+function findJson(txt) {
+  const f = fences(txt).find(b => b.lang === 'json' || /^\s*\{/.test(b.body));
+  if (f) return f;
+  const a = txt.indexOf('{'); if (a < 0) return null;
+  let depth = 0, str = false, esc = false;
+  for (let i = a; i < txt.length; i++) {
+    const c = txt[i];
+    if (str) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') str = false; continue; }
+    if (c === '"') str = true; else if (c === '{') depth++; else if (c === '}' && --depth === 0) return { body: txt.slice(a, i + 1), start: a, end: i + 1 };
+  }
+  return null;
+}
+/* Raster: Codeblock mit Rasterzeilen, sonst die längste Folge gleich langer Rasterzeilen (≥ 20 Zeichen) */
+function findGrid(txt, notes) {
+  for (const f of fences(txt)) {
+    const rows = f.body.split(/\r?\n/).map(cleanLine).filter(r => r.length);
+    if (rows.length >= 10 && rows.filter(isGridLine).length >= rows.length * .8) return rows;
+  }
+  const L = txt.split(/\r?\n/).map(cleanLine);
+  let best = null;
+  for (let i = 0; i < L.length;) {
+    if (!isGridLine(L[i])) { i++; continue; }
+    let j = i + 1; while (j < L.length && isGridLine(L[j]) && L[j].length === L[i].length) j++;
+    if (!best || j - i > best.j - best.i || (j - i === best.j - best.i && L[i].length > best.w)) best = { i, j, w: L[i].length };
+    i = j;
+  }
+  if (!best || best.j - best.i < 10) return null;
+  const rows = L.slice(best.i, best.j), w = best.w, seg = /[T#WD.PtkBOLHGFVRCEY1-9a-f]+/g;
+  // Nachbarzeilen gleicher Breite mit einzelnen Tippfehlern mitnehmen (der Prüfer meldet die Zeichen)
+  let i = best.i - 1, j = best.j;
+  while (i >= 0 && L[i].length === w && gridShare(L[i]) >= .9) rows.unshift(L[i--]);
+  while (j < L.length && L[j].length === w && gridShare(L[j]) >= .9) rows.push(L[j++]);
+  // Fremdtext vor/nach der ersten bzw. letzten Rasterzeile abschneiden
+  if (i >= 0) { const m = (L[i].match(seg) || []).pop(); if (m && m.length === w && L[i].endsWith(m)) { rows.unshift(m); notes.push(`Fremdtext vor der ersten Rasterzeile entfernt: "${L[i].slice(0, L[i].length - w)}"`); } }
+  if (j < L.length) { const m = (L[j].match(seg) || [])[0]; if (m && m.length === w && L[j].startsWith(m)) { rows.push(m); notes.push(`Fremdtext nach der letzten Rasterzeile entfernt: "${L[j].slice(w)}"`); } }
+  return rows;
+}
+function parseAnswer(txt, notes = []) {
+  const js = findJson(txt);
+  if (!js) throw new Error('JSON nicht gefunden (Block mit "name", "rooms", "lamps", "spawns")');
+  let meta;
+  try { meta = JSON.parse(js.body); } catch (e) { throw new Error('JSON fehlerhaft: ' + e.message); }
+  // JSON herausschneiden, damit eine angeklebte Rasterzeile ("TTTT{") frei wird
+  const rows = findGrid(txt.slice(0, js.start) + '\n' + txt.slice(js.end), notes);
+  if (!rows) throw new Error('Raster nicht gefunden (mindestens 10 gleich lange Zeilen aus Rasterzeichen)');
   const rooms = {}; for (const [k, d] of Object.entries(meta.rooms || {})) rooms[k] = { name: d.name, f: d.floor || d.f, out: d.outside || d.out ? 1 : 0 };
   return { name: meta.name, team: true, need: meta.need || 6, grid: rows, rooms, lamps: meta.lamps || [], spawns: meta.spawns || [] };
+}
+/* Selbsttest: dieselbe Antwort in mehreren Kopier-Varianten muss gleich ausgelesen werden */
+function selftest() {
+  const ctx = { MAPS: {}, TAU: Math.PI * 2, Math, Object, JSON };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'js', 'maps', 'schule.js'), 'utf8'), ctx);
+  const d = ctx.MAPS['schule-team'], rooms = {};
+  for (const [k, v] of Object.entries(d.rooms)) rooms[k] = { name: v.name, floor: v.f, outside: !!v.out };
+  const grid = d.grid.join('\n'), json = JSON.stringify({ name: 'Test', rooms, lamps: [[6.5, 19.3, 3, 'warm']], spawns: d.spawns.map(s => ({ survivors: s.s, killer: s.k })) }, null, 2);
+  const v = {
+    'Raster und JSON in Codeblöcken': `Hier ist die Karte:\n\n\`\`\`\n${grid}\n\`\`\`\n\nUnd die Daten:\n\n\`\`\`json\n${json}\n\`\`\`\n`,
+    'Raster ohne Codeblock': `Hier ist die Karte:\n\n${grid}\n\nUnd die Daten:\n\n\`\`\`json\n${json}\n\`\`\`\n`,
+    'Raster mit Text-Codeblock': `\`\`\`text\n${grid}\n\`\`\`\n\`\`\`json\n${json}\n\`\`\``,
+    'ohne alle Codeblöcke, JSON angeklebt': `(hier einfügen)${grid}${json}`,
+    'JSON ohne Codeblock, Raster mit': `\`\`\`\n${grid}\n\`\`\`\n${json}\n`,
+    'Raster als JS-Strings': d.grid.map(r => `  "${r}",`).join('\n') + '\n' + json,
+  };
+  let ok = true; const ref = JSON.stringify(parseAnswer(v['Raster und JSON in Codeblöcken']));
+  for (const [name, txt] of Object.entries(v)) {
+    let res; try { res = JSON.stringify(parseAnswer(txt)); } catch (e) { res = 'FEHLER: ' + e.message; }
+    const pass = res === ref; ok = ok && pass; console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${pass ? '' : '  → ' + res.slice(0, 80)}`);
+  }
+  for (const [name, txt, want] of [['ohne Raster', `\`\`\`json\n${json}\n\`\`\``, 'Raster nicht gefunden'], ['ohne JSON', `\`\`\`\n${grid}\n\`\`\``, 'JSON nicht gefunden']]) {
+    let msg = ''; try { parseAnswer(txt); } catch (e) { msg = e.message; }
+    const pass = msg.startsWith(want); ok = ok && pass; console.log(`${pass ? 'PASS' : 'FAIL'}  Fehlermeldung ${name}: "${msg}"`);
+  }
+  return ok;
 }
 function toJs(id, def) {
   const q = s => JSON.stringify(s);
@@ -195,7 +268,8 @@ ${rooms}
 }
 
 (function main() {
-  const args = process.argv.slice(2), file = args.find(a => !a.startsWith('--'));
+  const args = process.argv.slice(2), file = args.find(a => !a.startsWith('--') && args[args.indexOf(a) - 1] !== '--id');
+  if (args.includes('--selftest')) process.exit(selftest() ? 0 : 1);
   if (!file) { console.log('Aufruf: node tools/mapcheck.js <js/maps/x.js | antwort.md --id name [--write]>'); process.exit(2); }
   const txt = fs.readFileSync(file, 'utf8');
   let errors = 0;
@@ -205,7 +279,10 @@ ${rooms}
     for (const [id, def] of Object.entries(ctx.MAPS)) errors += report(id, def);
   } else {
     const ia = args.indexOf('--id'), id = ia >= 0 ? args[ia + 1] : path.basename(file).replace(/\.\w+$/, '');
-    const def = parseAnswer(txt);
+    const notes = [];
+    let def;
+    try { def = parseAnswer(txt, notes); } catch (e) { console.log('✗ ' + e.message); process.exit(1); }
+    notes.forEach(n => console.log('  i ' + n));
     errors += report(id, def);
     if (args.includes('--write')) {
       if (errors) { console.log('\nNicht geschrieben: erst die Fehler beheben.'); }
