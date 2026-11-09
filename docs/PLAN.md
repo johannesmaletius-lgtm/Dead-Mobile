@@ -57,7 +57,7 @@ Parallele Agenten arbeiten in eigenen Git-Worktrees; der Koordinator prüft und 
 ## Netz-Architektur (für Agent „Netz")
 
 - **PeerJS** (MIT) wird nur bei Bedarf vom CDN geladen. Raum-ID `deadmobile-XXXX` (4 Buchstaben ohne
-  Verwechsler), max. 3 Spieler. Test-Transport über `BroadcastChannel` (`#local` in der URL, mehrere Tabs).
+  Verwechsler), max. 3 Spieler. Test-Transport über `BroadcastChannel` (`?net=local` in der URL, mehrere Tabs).
 - **Host ist maßgeblich:** Er simuliert Killer, Bots, Welt und alle Zustände.
 - **Clients bestimmen nur:** die eigene Position/Richtung/Animation und eigene QTEs. Sie senden 20×/s
   ihren Zustand und Ereignisse (Palette, Fenster, Spind, Lärm, Aufgabenfortschritt, Heilen/Retten, Zappeln).

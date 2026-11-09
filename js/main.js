@@ -31,8 +31,9 @@ document.addEventListener('contextmenu', e => { if (e.target === cv) e.preventDe
 const KMAP = { ArrowUp: 'u', KeyW: 'u', ArrowDown: 'd', KeyS: 'd', ArrowLeft: 'l', KeyA: 'l', ArrowRight: 'r', KeyD: 'r' };
 const ADIR = { u: 0, r: 1, d: 2, l: 3 };
 window.addEventListener('keydown', e => {
+  if (Lobby.key(e)) return;   // Team-Menü/Lobby offen: Escape = zurück, Eingabefelder bekommen alle Tasten
   if (e.code === 'Escape' || e.code === 'KeyP') { if (state === 'play') { if (Q && e.code === 'Escape') stopWork(); else pauseGame(); } else if (state === 'paused') resumeGame(); return; }
-  if ((e.code === 'Space' || e.code === 'Enter') && (state === 'title' || state === 'end') && document.activeElement === document.body) { e.preventDefault(); playPressed(); return; }
+  if ((e.code === 'Space' || e.code === 'Enter') && (state === 'title' || state === 'end') && document.activeElement === document.body) { e.preventDefault(); if (state === 'end' && MODE === 'team') againPressed(); else playPressed(); return; }
   if (state !== 'play') return;
   const k = KMAP[e.code];
   if (k) {
@@ -58,13 +59,17 @@ function sndUI() { for (const id of ['#sndT', '#sndP']) { $(id).innerHTML = A.on
 function toggleSnd() { A.init(); A.set(!A.on); try { localStorage.setItem(KEY + '-snd', A.on ? '1' : '0'); } catch (e) {} sndUI(); }
 $('#sndT').addEventListener('click', toggleSnd); $('#sndP').addEventListener('click', toggleSnd);
 function playPressed() { if (save.tut) startGame(); else startTutorial(); }
+// Team-Modus: „Nochmal" und „Neu starten" bleiben im Team (offline: gleiche Karte mit Bots, online: zurück in den Raum)
+function againPressed() { if (MODE === 'team') Lobby.again(); else startGame(); }
+function restartPressed() { if (MODE === 'team') Lobby.restart(); else startGame(); }
 $('#play').addEventListener('click', playPressed);
 $('#tutBtn').addEventListener('click', startTutorial);
+$('#teamBtn').addEventListener('click', () => { A.init(); Lobby.open(); });
 $('#tutSkip').addEventListener('click', finishTutorial);
 $('#tutGo').addEventListener('click', finishTutorial);
-$('#again').addEventListener('click', () => againPressed());
+$('#again').addEventListener('click', againPressed);
 $('#resume').addEventListener('click', resumeGame);
-$('#restart').addEventListener('click', () => againPressed());
+$('#restart').addEventListener('click', restartPressed);
 $('#pauseBtn').addEventListener('click', pauseGame);
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
 function showTitle() {
@@ -123,7 +128,7 @@ requestAnimationFrame(frame);
 
 window.__ns = {
   get S() { return S; }, get K() { return K; }, get SV() { return SV; }, get mode() { return MODE; }, get map() { return MAPID; },
-  MAPS, loadMap, useMap, startTeam, taskPoints, get need() { return NEED; }, get Q() { return Q; }, get state() { return state; }, get act() { return actNow; },
+  MAPS, loadMap, useMap, startTeam, taskPoints, Net, Lobby, get need() { return NEED; }, get Q() { return Q; }, get state() { return state; }, get act() { return actNow; },
   tasks, pallets, windows, lockers, hooks, gates, findPath, ch, startGame, caught, stains, killerVisible, killerSees,
   tp(x, y) { S.x = x; S.y = y; }, ktp(x, y) { K.x = x; K.y = y; K.path = null; K.goal = null; K.act = null; },
   finish(n = tasks.length) { tasks.slice(0, n).forEach(t => { if (!t.done) complete(t); }); },

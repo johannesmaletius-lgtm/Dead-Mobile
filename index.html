@@ -37,7 +37,7 @@
   <h1 class="logo">Dead <span class="red">Mobile</span></h1>
   <svg class="smear" viewBox="0 0 440 34" aria-hidden="true"><path d="M8 12c60 14 140 20 214 16 76-4 150-14 210-24-40 16-92 26-150 30-80 6-170 2-274-22z" fill="#c3121f"/><path d="M60 22c20 2 26 8 24 12M300 25c4 3 5 6 4 9" stroke="#8e0f16" stroke-width="3" fill="none" stroke-linecap="round"/></svg>
   <button id="play" class="btn" aria-label="Spielen"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
-  <button id="tutBtn" class="pill">Tutorial</button>
+  <div class="row"><button id="tutBtn" class="pill">Tutorial</button><button id="teamBtn" class="pill">Team</button></div>
   <div id="best" class="best" hidden></div>
   <button id="sndT" class="rnd" aria-label="Ton an oder aus"></button>
 </section>
@@ -46,6 +46,7 @@
   <div class="row">
     <button id="resume" class="btn" aria-label="Weiter"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
     <button id="restart" class="btn" aria-label="Neu starten"><svg viewBox="0 0 24 24"><path d="M12 4a8 8 0 1 1-7.7 5.9l1.9.6A6 6 0 1 0 12 6v3L7 5l5-4z"/></svg></button>
+    <button id="leaveP" class="btn" hidden aria-label="Zum Menü"><svg viewBox="0 0 24 24"><path d="M4 3h10v2H6v14h8v2H4zM15.5 7.5 20 12l-4.5 4.5V13.5H9v-3h6.5z"/></svg></button>
   </div>
   <button id="sndP" class="rnd" aria-label="Ton an oder aus"></button>
 </section>
@@ -63,7 +64,57 @@
   <div id="endStats" class="stats"></div>
   <div id="endBest" class="best" hidden></div>
   <button id="again" class="btn" aria-label="Nochmal"><svg viewBox="0 0 24 24"><path d="M12 4a8 8 0 1 1-7.7 5.9l1.9.6A6 6 0 1 0 12 6v3L7 5l5-4z"/></svg></button>
+  <button id="endLeave" class="pill back" hidden><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg><span>Menü</span></button>
 </section>
+
+<!-- Team-Menü und Lobby (js/lobby.js) -->
+<section id="team" class="screen lob" hidden aria-labelledby="teamH">
+  <button id="teamBack" class="pill back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg><span>Zurück</span></button>
+  <div class="lin">
+  <h2 id="teamH" class="logo sub">Team</h2>
+  <div class="lgrid">
+    <div class="panel who">
+      <label class="lbl" for="tName">Dein Name</label>
+      <input id="tName" class="field" maxlength="14" autocomplete="off" autocapitalize="words" spellcheck="false" enterkeyhint="done">
+      <div class="lbl">Deine Figur</div>
+      <div id="tSkins" class="skins" role="radiogroup" aria-label="Deine Figur"></div>
+    </div>
+    <div class="panel acts">
+      <div id="tMaps" class="maps" hidden></div>
+      <button id="tBots" class="pill gold">Mit Bots spielen</button>
+      <button id="tHost" class="pill">Raum erstellen</button>
+      <div class="or"><span>oder beitreten</span></div>
+      <div class="joinrow">
+        <input id="tCode" class="field code" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go" aria-label="Raumcode">
+        <button id="tJoin" class="pill">Beitreten</button>
+      </div>
+    </div>
+  </div>
+  <p id="tMsg" class="nmsg" role="status" aria-live="polite"></p>
+  </div>
+</section>
+
+<section id="room" class="screen lob" hidden aria-labelledby="rCodeLbl">
+  <button id="roomBack" class="pill back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg><span>Verlassen</span></button>
+  <div class="lin">
+  <div class="lgrid">
+    <div class="panel rinfo">
+      <div id="rCodeLbl" class="lbl">Raumcode</div>
+      <div id="rCode" class="bigcode" title="Zum Kopieren antippen"></div>
+      <p id="rHint" class="hint"></p>
+      <div class="lbl">Karte</div>
+      <div id="rMaps" class="maps"></div>
+    </div>
+    <div class="panel rplay">
+      <div class="lbl">Spieler <span id="rCount"></span></div>
+      <ol id="rList" class="plist"></ol>
+      <button id="rStart" class="pill gold">Starten</button>
+      <p id="rWait" class="wait">Warte auf den Host</p>
+    </div>
+  </div>
+  </div>
+</section>
+<div id="notice" role="alert" hidden></div>
 <!-- Reihenfolge wichtig: klassische Skripte teilen sich den globalen Gültigkeitsbereich (läuft auch per file://). -->
 <script src="js/core.js"></script>
 <script src="js/maps/schule.js"></script>
@@ -83,6 +134,8 @@
 <script src="js/tiles.js"></script>
 <script src="js/light.js"></script>
 <script src="js/hud.js"></script>
+<script src="js/net.js"></script>
+<script src="js/lobby.js"></script>
 <script src="js/main.js"></script>
 
 </body></html>

@@ -440,8 +440,8 @@ function showTeamEnd() {
   }).join('');
   $('#teamRes').hidden = false; $('#specBar').hidden = true; specShown = '';
 }
-/* Nochmal: Team-Runde mit derselben Aufstellung, sonst Solo */
-function againPressed() { if (MODE === 'team') startTeam(MAPID, teamRoster); else startGame(); }
+/* Nochmal ohne Lobby (z. B. per Test-API gestartet): Team-Runde mit derselben Aufstellung. Knöpfe: js/main.js → Lobby.again */
+function teamRestart() { startTeam(MAPID, teamRoster); }
 $('#specEnd').addEventListener('click', () => teamGiveUp());
 $('#specNext').addEventListener('click', specNext);
 
