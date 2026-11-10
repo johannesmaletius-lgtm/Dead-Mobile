@@ -83,12 +83,13 @@ MAPS.schule = {
     for (let k = 0; k < 140; k++) { const i = pick([...roomFloor[8], ...roomFloor[9]]); f.fillStyle = ['rgba(110,60,25,.5)', 'rgba(140,90,30,.4)', 'rgba(80,40,20,.5)'][k % 3]; f.beginPath(); f.ellipse(i % W + rnd(), ((i / W) | 0) + rnd(), .07, .04, rnd() * 3, 0, TAU); f.fill(); }
   },
 };
-/* Team-Variante (klein, zum Testen): Duo-Aufgabe an der Südwand der Turnhalle, 5 von 7 Punkten nötig */
+/* Team-Variante (klein, zum Testen): Duo-Aufgabe an der Südwand der Turnhalle, zwei zusätzliche Aggregate (Flur, Hof Süd),
+   7 von 9 Punkten nötig */
 MAPS['schule-team'] = Object.assign({}, MAPS.schule, {
-  name: 'Schule (klein)', team: true, need: 5,
+  name: 'Schule (klein)', team: true, need: 7,
   // Bot-Abstimmung (js/bots.js, Bots.cfg): Die kleine Karte hat sehr viele Fenster – Bots nutzen sie auf der Flucht seltener
   bots: { vault: 2.2, win: 0 },
-  grid: MAPS.schule.grid.map((r, y) => y === 20 ? r.slice(0, 30) + 'Y' + r.slice(31, 35) + 'Y' + r.slice(36) : r),
+  grid: MAPS.schule.grid.map((r, y) => y === 20 ? r.slice(0, 30) + 'Y' + r.slice(31, 35) + 'Y' + r.slice(36) : y === 18 ? r.slice(0, 17) + 'G' + r.slice(18) : y === 35 ? r.slice(0, 40) + 'G' + r.slice(41) : r),
   spawns: [
     { s: [[2.5, 11.5], [10.5, 22.5], [21.5, 26.5]], k: [42.5, 11.5] },
     { s: [[3.5, 3.5], [21.5, 26.5], [2.5, 11.5]], k: [41.5, 34.5] },

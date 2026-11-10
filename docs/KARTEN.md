@@ -44,8 +44,11 @@ Breite 58–70 Zeichen, Höhe 40–50 Zeilen. **Alle Zeilen exakt gleich lang.**
 
 ## Spielregeln für gutes Kartendesign
 
-- **Aufgaben:** genau **7 normale Aufgaben** (`G`, `F`, `V`, ggf. `R`; mindestens 3 `G`) plus das Duo-Paar `Y`.
-  Höchstens eine Aufgabe pro Raum (große Außenzonen dürfen zwei haben). Die Aufgaben sollen über die ganze Karte verteilt sein.
+- **Aufgaben:** genau **9 normale Aufgaben** (`G`, `F`, `V`, ggf. `R`; mindestens 5 `G`) plus das Duo-Paar `Y`
+  (gebraucht werden 8 von 11 Punkten). Höchstens eine Aufgabe pro Raum (große Außenzonen dürfen drei haben).
+- **Jungle Gyms:** ein bis zwei Mauer-Strukturen im Außenbereich (nicht mehr): Mauerstücke `#` im Windrad um einen freien
+  Innenraum, mit einem Fenster `W` in der langen Mauer und einer Palette `P` in einer Lücke – so entstehen Schleifen,
+  in denen man den Killer im Kreis führen kann. Rundherum eine Kachel frei lassen. Die Aufgaben sollen über die ganze Karte verteilt sein.
 - **Paletten:** 12–18, in Gängen, Türdurchgängen und an „Schleifen" um Möbelblöcke, Bäume und Gebäudeecken,
   damit man den Killer im Kreis laufen lassen kann (Loops). Nie zwei Paletten direkt nebeneinander.
 - **Fenster:** 8–14, zwischen Räumen und nach draußen, ebenfalls für Loops.

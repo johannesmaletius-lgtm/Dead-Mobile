@@ -29,7 +29,7 @@
      ignore {sv, until}. Zusätzliche K.mode: 'fetch' (geht zum Liegenden), 'carry' (trägt zum Haken). */
 
 let deaths = [], teamEndAt = 0, teamRoster = null, endLock = false;
-function teamReset() { deaths = []; teamEndAt = 0; endLock = false; specShown = ''; }
+function teamReset() { deaths = []; teamEndAt = 0; endLock = false; specShown = ''; cuePrev = false; }
 
 /* ================= Abfragen ================= */
 const isFree = sv => inPlay(sv) && sv.hp > 0 && !sv.carried && !sv.hung;
@@ -41,9 +41,11 @@ const campBlock = (x, y) => T < K.campUntil && K.campRoom > 0 && roomAt(x, y) ==
 const survSpeed = (sv, run) => sv.hp <= 0 ? CFG.crawl : sv.burst > 0 ? CFG.sBurst : run ? CFG.sRun : CFG.sWalk;
 const workSpot = sv => sv.work && sv.work.stations ? sv.work.stations[sv.station] : sv.work;
 const duoBoth = t => SV.some(v => v.work === t && v.station === 0) && SV.some(v => v.work === t && v.station === 1);
-const canHeal = (a, b) => a !== b && isFree(a) && !a.hidden && !a.act && inPlay(b) && b.hp < 2 && !b.carried && !b.hung && !b.hidden
+/* Wird sv gerade geheilt? Dann darf er nichts anderes tun (keine Aufgabe, Palette, Fenster, Spind, selbst heilen/retten). */
+const beingHealed = sv => sv.hp > 0 && T - sv.healedT < .25;
+const canHeal = (a, b) => a !== b && isFree(a) && !a.hidden && !a.act && !beingHealed(a) && inPlay(b) && b.hp < 2 && !b.carried && !b.hung && !b.hidden
   && hyp(a.x - b.x, a.y - b.y) < CFG.healR;
-const canUnhook = (a, b) => a !== b && isFree(a) && !a.hidden && !a.act && !!b.hung && !b.out
+const canUnhook = (a, b) => a !== b && isFree(a) && !a.hidden && !a.act && !beingHealed(a) && !!b.hung && !b.out
   && hyp(a.x - b.hung.front.x, a.y - b.hung.front.y) < CFG.unhookR;
 /* Aufmerksamkeit des Killers: ignoriertes Ziel (40-s-Regel) und Haken-Raum kurz nach dem Aufhängen ×0,2 */
 function awareMul(sv, d) {
@@ -73,7 +75,14 @@ const FX = {
     if (sv === S) { shake(.4); S.flinch = .45; flash = .35; flashCol = '255,120,40'; eyeT = T; }
   },
 };
-function fx(kind, sv, o) { const f = FX[kind]; if (f) f(sv, o); }
+/* Wer nicht selbst betroffen ist, hört den Effekt nur aus der Nähe (Haken-Schrei und Tod leise überall) */
+const FX_MIN = { hook: .5, death: .5, stage: .3, escape: 1 };
+function fx(kind, sv, o) {
+  const f = FX[kind]; if (!f) return;
+  if (sv === S) { f(sv, o); return; }
+  const p = o && o.x != null ? o : o && o.cx != null ? { x: o.cx, y: o.cy } : sv;
+  hear(p.x, p.y, () => f(sv, o), FX_MIN[kind] || 0);
+}
 
 /* ================= Zustandswechsel ================= */
 function clearInteract(sv) { if (sv.work) stopWorkFor(sv); if (sv.heal) stopHeal(sv); sv.unhook = null; }
@@ -95,7 +104,7 @@ function pickUp(sv) {
   clearInteract(sv); leaveLocker(sv);
   sv.act = null; sv.z = 0; sv.hp = 0; sv.carried = true; sv.wiggle = 0; sv.healProg = 0; sv.burst = 0; sv.moving = sv.running = false;
   K.carry = sv; K.mode = 'carry'; K.carryT = 0; K.target = null; K.aware = 0; K.path = null; K.goal = null;
-  K.hookGoal = nearestFreeHook();
+  K.hookGoal = nearestFreeHook(); K.kstats.downs++;
   sv.x = K.x; sv.y = K.y; sv.mask = K.mask;
   fx('pick', sv);
 }
@@ -121,6 +130,7 @@ function placeBeside(sv) {
 /* Aufhängen: 1. Mal ab 0, 2. Mal ab mindestens 0,5 (Kampfphase), 3. Mal sofort tot */
 function hookSurv(sv, h) {
   if (K.carry === sv) { K.carry = null; K.hookGoal = null; }
+  K.kstats.hooks++;
   sv.carried = false; sv.hookN++; sv.hung = h; sv.unhookProg = 0; sv.wiggle = 0; sv.moving = sv.running = false;
   sv.x = h.front.x; sv.y = h.front.y; sv.mask = mask[I(sv.x | 0, sv.y | 0)] || sv.mask;
   // Kein Camping: mindestens CFG.antiCamp s in anderen Räumen suchen
@@ -150,6 +160,7 @@ function killSurv(sv, how) {
   if (sv.out) return;
   clearInteract(sv);
   if (K.carry === sv) { K.carry = null; K.hookGoal = null; if (K.mode === 'carry') K.mode = 'patrol'; }
+  K.kstats.kills++;
   sv.carried = false; sv.out = 'dead'; sv.outT = T; sv.hp = 0; sv.moving = sv.running = false; sv.leave = null; sv.unhookProg = 0;
   const h = sv.hung || { cx: sv.x - .3, cy: sv.y - .95 }, d = { sv, h, how, t0: T, x: sv.x, y: sv.y, dir: sv.dir };
   deaths.push(d);
@@ -185,6 +196,7 @@ function startHeal(sv, target) {
 function healStep(healer, target, dt, skill = CFG.botSkill) {
   if (!canHeal(healer, target)) { if (healer.heal === target) stopHeal(healer); return false; }
   healer.heal = target; healer.healAt = T; target.healedT = T;
+  if (target.hp > 0) { if (target.work) stopWorkFor(target); if (target.heal) stopHeal(target); target.unhook = null; }   // wer geheilt wird, tut nichts anderes
   healer.moving = healer.running = false; healer.dir = Math.atan2(target.y - healer.y, target.x - healer.x);
   target.healProg = Math.min(1, target.healProg + dt / (target.hp >= 1 ? CFG.healInj : CFG.healDown));
   if (healer !== S && skill != null) botCheck(healer, dt, skill, () => healFail(healer, target));
@@ -223,7 +235,7 @@ function duoStation(t, sv) {
   return b;
 }
 function startWorkFor(sv, t, station) {
-  if (!t || t.done || !isFree(sv) || sv.hidden) return false;
+  if (!t || t.done || !isFree(sv) || sv.hidden || beingHealed(sv)) return false;
   if (t.type === 'duo') {
     if (station == null || station < 0) station = duoStation(t, sv);
     if (station < 0 || SV.some(v => v !== sv && v.work === t && v.station === station)) return false;
@@ -235,13 +247,13 @@ function startWorkFor(sv, t, station) {
   return true;
 }
 function stopWorkFor(sv) { if (sv === S) stopWork(); else sv.work = null; }
-/* Bots: an Aufgabe t weiterarbeiten (vorher startWorkFor). Normale Aufgaben brauchen CFG.genTime s, Duo läuft zentral
+/* Bots: an Aufgabe t weiterarbeiten (vorher startWorkFor). Normale Aufgaben brauchen taskTime(t) s, Duo läuft zentral
    (teamStep) nur bei zwei Besetzern. Liefert den Fortschritt. Für den eigenen Spieler übernimmt das QTE. */
 function workStep(sv, t, dt, skill = CFG.botSkill) {
   if (sv.work !== t || t.done) return t.done ? 1 : t.prog;
   const duo = t.type === 'duo', p = workSpot(sv);
   sv.moving = sv.running = false; sv.dir = Math.atan2(p.cy - sv.y, p.cx - sv.x);
-  if (!duo) t.prog = Math.min(1, t.prog + dt / CFG.genTime);
+  if (!duo) t.prog = Math.min(1, t.prog + dt / taskTime(t));
   if (sv !== S && (!duo || duoBoth(t))) botCheck(sv, dt, skill, () => taskFail(sv, t));
   if (!duo && t.prog >= 1) complete(t, sv);
   return t.prog;
@@ -273,6 +285,7 @@ function teamSurv(sv, dt) {
     if (inp.mag < .15) sv.moving = sv.running = false; else { everMoved = true; survMove(sv, inp, dt); }
     return true;
   }
+  if (beingHealed(sv)) { if (sv.work) stopWorkFor(sv); if (sv.heal) stopHeal(sv); sv.unhook = null; }
   if (sv.unhook) { if (actHeld && unhookStep(sv, sv.unhook, dt)) { survTick(sv, dt); return true; } sv.unhook = null; }
   if (sv.heal) { if (readInput().mag <= .4 && healStep(sv, sv.heal, dt, null)) { survTick(sv, dt); return true; } stopHeal(sv); }
   return false;
@@ -283,6 +296,7 @@ function teamActionPre() {
   if (S.carried) return K.carry === S ? { kind: 'wiggle' } : null;
   if (S.unhook) return { kind: 'unhooking', o: S.unhook };
   if (S.heal) return { kind: 'healing', o: S.heal };
+  if (beingHealed(S)) return { kind: 'healed' };   // wird geheilt: keine anderen Aktionen (Weglaufen bricht ab)
   return undefined;
 }
 function teamActions(take) {
@@ -373,7 +387,9 @@ function teamStep(dt) {
   for (const sv of SV) {
     if (sv.hung && !sv.out) {
       const was = sv.hookProg;
-      sv.hookProg = Math.min(1, sv.hookProg + dt / (2 * CFG.hookStage));
+      // Killer-Spieler: Steht er am Haken herum (Camping), läuft die Zeit nur halb so schnell
+      const camp = K.human && !K.carry && hyp(K.x - sv.hung.cx, K.y - sv.hung.cy) < CFG.hkCampR ? .5 : 1;
+      sv.hookProg = Math.min(1, sv.hookProg + dt * camp / (2 * CFG.hookStage));
       if (was < .5 && sv.hookProg >= .5) fx('stage', sv, sv.hung);
       if (T - sv.unhookT > .12) sv.unhookProg = 0;          // niemand rettet gerade
       if (sv.hookProg >= 1) killSurv(sv, 'hook');
@@ -428,10 +444,16 @@ function portraitURL(skin, size) {
 function showTeamEnd() {
   if (state === 'end') return;
   teamEndAt = 0; stats.end = T;
-  const won = S.out === 'escaped';
-  if (won) { save.wins++; persist(); }
+  const won = KP === 'local' ? SV.filter(v => v.out === 'dead').length >= 2 : S.out === 'escaped';
+  if (won && KP !== 'local') { save.wins++; persist(); }
   const esc = SV.filter(v => v.out === 'escaped').length;
   showEnd(won, Math.min(stats.heals, 3) * 3 + Math.min(stats.rescues, 2) * 5 + esc * 3);
+  if (KP === 'local') {   // Killer-Spieler: eigene Wertung
+    const ks = K.kstats, kills = SV.filter(v => v.out === 'dead').length, sc = Math.round(Math.min(100, kills * 25 + Math.min(ks.hooks, 6) * 3 + Math.min(ks.hits, 7)));
+    const w = $('#endWord'); w.textContent = kills >= 3 ? 'Massacre' : kills >= 2 ? 'Sacrificed' : 'Outplayed'; w.className = 'logo ' + (won ? 'win' : 'lose');
+    $('#grade').textContent = sc >= 90 ? 'S' : sc >= 75 ? 'A' : sc >= 60 ? 'B' : sc >= 40 ? 'C' : 'D'; $('#grade').className = sc >= 60 ? '' : 'lo'; $('#score').textContent = sc + ' / 100';
+    $('#sgrid').innerHTML = [['Kills', kills + ' / 3'], ['Hooks', ks.hooks], ['Hits', ks.hits], ['Pick-ups', ks.downs], ['Escaped', esc]].map(([k, v]) => `<div>${k}<b>${v}</b></div>`).join('');
+  } else
   $('#sgrid').insertAdjacentHTML('beforeend', `<div>Heals<b>${stats.heals}</b></div><div>Rescues<b>${stats.rescues}</b></div>`);
   $('#teamRes').innerHTML = SV.map((sv, i) => {
     const res = sv.out || 'alive', url = portraitURL(sv.skin, 104);
@@ -441,7 +463,7 @@ function showTeamEnd() {
   $('#teamRes').hidden = false; $('#specBar').hidden = true; specShown = '';
 }
 /* Nochmal ohne Lobby (z. B. per Test-API gestartet): Team-Runde mit derselben Aufstellung. Knöpfe: js/main.js → Lobby.again */
-function teamRestart() { startTeam(MAPID, teamRoster); }
+function teamRestart() { startTeam(MAPID, teamRoster, undefined, KP === 'local' ? 'local' : null); }
 $('#specEnd').addEventListener('click', () => teamGiveUp());
 $('#specNext').addEventListener('click', specNext);
 

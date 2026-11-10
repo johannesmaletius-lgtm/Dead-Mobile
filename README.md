@@ -10,7 +10,9 @@ Läuft komplett im Browser, ohne Installation und ohne Build: einfach `index.htm
 - **Tutorial:** spielbare Einführung in Bewegung, Aufgaben, Paletten, Fenster und Spinde.
 - **Team:** drei Überlebende gegen den Killer, auf den Karten *Ferienlager*, *Krankenhaus* und *Schule (klein)*.
   - **Mit Bots spielen** (offline): zwei KI-Mitspieler füllen das Team auf.
-  - **Raum erstellen / Beitreten** (online): bis zu drei Spieler, freie Plätze übernehmen Bots. Der Host bekommt einen
+  - **Als Killer spielen** (offline): du jagst drei Bots.
+  - **Raum erstellen / Beitreten** (online): bis zu vier Spieler – drei Überlebende und, wenn jemand im Raum
+    „Killer spielen“ wählt, ein Killer. Freie Plätze übernehmen Bots, den Killer sonst die KI. Der Host bekommt einen
     Code aus 4 Buchstaben; die anderen tippen ihn ein oder öffnen den Einladungslink (`?join=CODE`).
 
 ### Team-Regeln in Kürze
@@ -19,7 +21,15 @@ Läuft komplett im Browser, ohne Installation und ohne Build: einfach `index.htm
   und vom Haken **retten** (Aktion halten). Getragene **zappeln** sich frei (Aktion hämmern); ein Paletten-Treffer lässt
   den Killer fallen, wen er trägt.
 - Am Haken läuft die Zeit: Beim zweiten Mal beginnt sie bei der Hälfte, das dritte Mal ist das Ende.
-- Gebraucht werden 6 Punkte (kleine Schule: 5). Die **Duo-Aufgabe** zählt 2 und läuft nur, wenn zwei gleichzeitig an ihren Stationen stehen.
+- Gebraucht werden 8 von 11 Punkten (kleine Schule: 7 von 9). Die **Duo-Aufgabe** zählt 2 und läuft nur, wenn zwei gleichzeitig
+  an ihren Stationen stehen. Aufgaben dauern im Team länger und haben engere Skill-Checks als im Solo-Spiel.
+- Wer geheilt wird, kann währenddessen nichts anderes tun (weglaufen bricht die Heilung ab).
+- Der Killer (KI) lässt nach 35 s Jagd ohne Treffer von dir ab, schlägt jeden, der in Reichweite steht, und lernt aus
+  Wiederholungen: Schleifen um dieselbe Stelle, dasselbe Fenster, dieselbe Palette, derselbe Spind.
+- Jagdmusik, roter Rand und der nähere Kamera-Ausschnitt gelten nur für den, der gerade gejagt wird. Geräusche werden
+  mit der Entfernung leiser.
+- **Killer als Spieler:** Aktionsknopf = Angriff; steht nichts in Reichweite, das Naheliegende (aufheben, aufhängen,
+  Palette zerbrechen, durchs Fenster steigen, Spind öffnen, Aufgabe treten).
 - Wer durchs offene Tor läuft, ist entkommen. Wer raus ist, schaut den anderen zu.
 
 ### Online spielen

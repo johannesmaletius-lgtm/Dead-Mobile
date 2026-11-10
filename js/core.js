@@ -29,10 +29,23 @@ const CFG = {
   markLife: 6, markStep: 0.38,
   genTime: 14, valveTime: 6,
   // Team-Regeln (Phase 2, js/rules.js): Zeiten in s, Wege in Kacheln
-  crawl: .9, carryV: 3.6, pickT: 1, hookT: .9, hookStage: 30, unhookT: 1.2, unhookBurst: 1.5, unhookR: 1.3,
+  crawl: .9, carryV: 3.6, pickT: 1, hookT: .9, hookStage: 36, unhookT: 1.2, unhookBurst: 1.5, unhookR: 1.3,
   healInj: 12, healDown: 10, healR: 1.25, wiggleN: 66, wiggleStun: 2, wiggleBurst: 1.2,
-  loopDrop: 40, ignoreT: 20, ignoreNear: 2, antiCamp: 12, duoTime: 20, botSkill: .85,
+  loopDrop: 35, ignoreT: 20, ignoreNear: 2, antiCamp: 12, duoTime: 22, botSkill: .85,
+  // Team: Aufgaben dauern länger und sind anspruchsvoller (Solo/Tutorial behalten genTime/valveTime)
+  tGen: 18, tValve: 10, tFuse: 5, tRadio: 3, tFuseBot: 16, tRadioBot: 17, tValveBot: 14,
+  // Klügerer Killer (Team): Seitenhieb, Zielwechsel, Lernen aus Wiederholungen
+  smart: 1, swipeR: 1.7, switchNear: 3.2, loopLearn: [14, 8, 4], loopSpot: 4.5, loopT: 9, fakeT: 1.6,
+  // Menschlicher Killer
+  hkSpeed: 4.4, hkReach: 2.7, hkCampR: 5, chaseZoom: 1.2, hearNear: 7, hearFar: 20,
 };
+/* Team-Werte der Aufgaben (Solo und Tutorial bleiben bei den alten Werten) */
+const teamTasks = () => typeof MODE !== 'undefined' && MODE === 'team';
+const genTime = () => teamTasks() ? CFG.tGen : CFG.genTime;
+const fuseN = () => teamTasks() ? CFG.tFuse : 3;
+const radioN = () => teamTasks() ? CFG.tRadio : 2;
+/* Dauer einer Aufgabe für Bots (ohne QTE), in s */
+const taskTime = t => t.type === 'fuse' ? CFG.tFuseBot : t.type === 'radio' ? CFG.tRadioBot : t.type === 'valve' ? CFG.tValveBot : CFG.tGen;
 
 /* Kartenregister: js/maps/*.js tragen sich hier ein (MAPS[id] = {...}), js/map.js lädt sie */
 const MAPS = {};

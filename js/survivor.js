@@ -81,6 +81,7 @@ function survAct(sv, dt) {
   }
 }
 function computeAction() {
+  if (state === 'play' && KP === 'local') return killerAction();   // Killer-Spieler (js/hkiller.js)
   if (state !== 'play' || S.act) return null;
   if (MODE === 'team') { const a = teamActionPre(); if (a !== undefined) return a; }
   if (S.hidden) return { kind: 'unhide' };
@@ -111,6 +112,7 @@ function computeAction() {
 }
 function doAction() {
   const a = actNow; if (!a) return;
+  if (KP === 'local') { killerDo(a); return; }
   if (a.kind === 'task') { if (a.o.type === 'duo') startWorkFor(S, a.o, a.st); else startWork(a.o); }
   else if (a.kind === 'wiggle') wiggle(S);
   else if (a.kind === 'heal') startHeal(S, a.o);
@@ -138,13 +140,13 @@ function dropPallet(p, sv = S) {
   if (!kBusy && Math.abs(kl) < .5 + K.r && klat < .5 + K.r * .5) {
     const side = Math.abs(kl) > .05 ? Math.sign(kl) : -s;
     K.x += p.ax.x * (side * (.5 + K.r + .03) - kl); K.y += p.ax.y * (side * (.5 + K.r + .03) - kl);
-    K.act = { kind: 'stun', t: 0, dur: CFG.stun }; stats.stuns++; K.blood = 0; K.chaseT = 0; K.path = null; SFX.stun(); shake(sv === S ? .5 : .3);
+    K.act = { kind: 'stun', t: 0, dur: CFG.stun }; stats.stuns++; K.blood = 0; K.chaseT = 0; K.path = null; K.mem.stuns++; K.loop.alt = null; hear(p.cx, p.cy, () => { SFX.stun(); shake(sv === S ? .5 : .3); });
     if (MODE === 'team' && K.carry) dropCarried('pallet'); // Paletten-Stun beim Tragen: er lässt fallen
     if (TUT) toast('Volltreffer – er ist betäubt!');
   }
   sv.act = { kind: 'drop', t: 0, dur: .28 };
   if (TUT) TUT.flag.drop = true;
-  noise(p.cx, p.cy, 16, false); SFX.pallet(); if (sv === S) shake(.25);
+  noise(p.cx, p.cy, 16, false); hear(p.cx, p.cy, SFX.pallet); if (sv === S) shake(.25);
   for (let i = 0; i < 14; i++) parts.push({ x: p.cx + rand(-.6, .6), y: p.cy + rand(-.3, .3), z: .1, vx: rand(-1, 1), vy: rand(-.5, .5), vz: rand(.5, 2), g: 6, life: rand(.4, .8), max: .8, col: '140,120,95', sz: .05 });
 }
 function vaultOver(o, isWin, sv = S) {
@@ -157,21 +159,24 @@ function vaultOver(o, isWin, sv = S) {
     if (TUT) TUT.flag.vault = true;
     o.vaults = o.vaults.filter(t => T - t < 40); o.vaults.push(T);
     if (o.vaults.length >= 3 && K.mode === 'chase') { o.blockedUntil = T + 15; o.vaults = []; }
+    // Team: der Killer merkt sich, wer immer wieder durchs selbe Fenster springt (smartChase in js/killer.js)
+    if (MODE === 'team') { const lw = sv.lastWin; if (lw && lw.w === o && T - lw.t < 20) { lw.n++; lw.t = T; } else sv.lastWin = { w: o, n: 1, t: T, set: new Set([I(o.x, o.y)]) }; }
   }
   if (fast) noise(o.cx, o.cy, isWin ? 13 : 8, false);
-  SFX.vault(fast);
+  hear(o.cx, o.cy, () => SFX.vault(fast));
 }
 function hide(L, sv = S) {
   sv.act = { kind: 'enter', t: 0, dur: .45, fx: sv.x, fy: sv.y, L };
   const seen = killerSees(sv) || (K.aware > .35 && (K.mask & sv.mask));
   L.known = seen || (K.mode === 'chase' && T - K.seenT < CFG.track + .3);
   if (seen && K.mode !== 'chase') startChase(sv);
+  if (MODE === 'team' && ((K.mode === 'chase' && K.target === sv) || hyp(K.x - L.cx, K.y - L.cy) < 12)) L.uses++;   // er lernt beliebte Verstecke
   if (sv.running) noise(L.cx, L.cy, 7, false);
-  SFX.locker();
+  hear(L.cx, L.cy, SFX.locker);
 }
 function unhide(sv = S) {
   const L = sv.hidden; sv.hidden = null; L.known = false;
   sv.act = { kind: 'exit', t: 0, dur: .38, L, tx: L.front.x, ty: L.front.y };
   sv.dir = Math.atan2(L.front.y - L.cy, L.front.x - L.cx);
-  SFX.locker();
+  hear(L.cx, L.cy, SFX.locker);
 }

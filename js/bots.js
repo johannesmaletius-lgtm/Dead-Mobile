@@ -339,7 +339,9 @@ const Bots = (() => {
     if (sv.work && !(j && (j.kind === 'task' || j.kind === 'duo') && j.o === sv.work)) stopWorkFor(sv);
     // Ich werde geheilt: dem Heiler entgegengehen und stillhalten (an einer Aufgabe arbeite ich dabei weiter)
     const hl = b.healer;
-    if (hl && !sv.work && !(j && (j.kind === 'heal' || j.kind === 'rescue'))) {
+    if (hl && !(j && (j.kind === 'heal' || j.kind === 'rescue'))) {
+      if (sv.work && hyp(hl.x - sv.x, hl.y - sv.y) < 2.6) stopWorkFor(sv);
+      if (sv.work) { workStep(sv, sv.work, dt, b.skill); return; }
       if (hyp(hl.x - sv.x, hl.y - sv.y) > 2.2) go(sv, b, hl.x, hl.y, false, dt); else stand(sv);
       return;
     }

@@ -82,6 +82,7 @@
     <div class="panel acts">
       <div id="tMaps" class="maps" hidden></div>
       <button id="tBots" class="pill gold">Mit Bots spielen</button>
+      <button id="tKiller" class="pill red">Als Killer spielen</button>
       <button id="tHost" class="pill">Raum erstellen</button>
       <div class="or"><span>oder beitreten</span></div>
       <div class="joinrow">
@@ -108,6 +109,8 @@
     <div class="panel rplay">
       <div class="lbl">Spieler <span id="rCount"></span></div>
       <ol id="rList" class="plist"></ol>
+      <div id="rKiller" class="slot kil bot"></div>
+      <button id="rRole" class="pill small">Killer spielen</button>
       <button id="rStart" class="pill gold">Starten</button>
       <p id="rWait" class="wait">Warte auf den Host</p>
     </div>
@@ -129,6 +132,7 @@
 <script src="js/killer.js"></script>
 <script src="js/flow.js"></script>
 <script src="js/rules.js"></script>
+<script src="js/hkiller.js"></script>
 <script src="js/bots.js"></script>
 <script src="js/render.js"></script>
 <script src="js/figures.js"></script>

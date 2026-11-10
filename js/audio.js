@@ -2,7 +2,7 @@
 /* Dead Mobile – Audio: Web-Audio-Synth, Soundeffekte (SFX), Verfolgungsmusik */
 /* ================= Audio (Web Audio, alles synthetisch) ================= */
 const A = {
-  c: null, m: null, sfx: null, mus: null, nb: null, on: true,
+  c: null, m: null, sfx: null, mus: null, nb: null, on: true, vol: 1,
   init() {
     if (this.c) { if (this.c.state !== 'running') this.c.resume(); return; }
     try {
@@ -26,6 +26,7 @@ const A = {
   set(on) { this.on = on; if (this.m) this.m.gain.setTargetAtTime(on ? 1 : 0, this.c.currentTime, .05); },
   tone(type, f0, f1, dur, vol, at = 0, dest) {
     const c = this.c; if (!c) return; const t = c.currentTime + at;
+    if (!dest) { vol *= this.vol; if (vol < .004) return; }
     const o = c.createOscillator(); o.type = type; o.frequency.setValueAtTime(f0, t);
     if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
     const g = c.createGain(); g.gain.setValueAtTime(.0001, t);
@@ -34,6 +35,7 @@ const A = {
   },
   noise(dur, vol, type, f0, f1, q = 1, at = 0, dest) {
     const c = this.c; if (!c) return; const t = c.currentTime + at;
+    if (!dest) { vol *= this.vol; if (vol < .004) return; }
     const s = c.createBufferSource(); s.buffer = this.nb;
     const f = c.createBiquadFilter(); f.type = type; f.frequency.setValueAtTime(f0, t);
     if (f1 && f1 !== f0) f.frequency.exponentialRampToValueAtTime(f1, t + dur); f.Q.value = q;
@@ -42,7 +44,16 @@ const A = {
     s.connect(f); f.connect(g); g.connect(dest || this.sfx); s.start(t, Math.random() * 1.5); s.stop(t + dur + .05);
   },
 };
+/* Team: Geräusche aus der Welt werden mit der Entfernung zum Betrachter leiser (voll bis CFG.hearNear, stumm ab
+   CFG.hearFar; min = Mindestlautstärke für Meldungen, die alle hören sollen). Solo/Tutorial: unverändert laut. */
+function hear(x, y, fn, min = 0) {
+  if (MODE !== 'team' || state !== 'play') return fn();
+  const V = viewer(), v = clamp(1 - (hyp(x - V.x, y - V.y) - CFG.hearNear) / (CFG.hearFar - CFG.hearNear), min, 1);
+  const old = A.vol; A.vol = old * v * v;
+  try { return fn(); } finally { A.vol = old; }
+}
 const SFX = {
+  genHum(p) { A.noise(.16, .1, 'lowpass', 150 + p * 130, 80, 1); A.tone('square', 46 + p * 16, 44, .12, .03); },
   heart(v) { A.tone('sine', 64, 38, .17, .9 * v); A.tone('sine', 56, 34, .15, .6 * v, .17); },
   sting() { A.tone('sawtooth', 1250, 2150, .6, .09); A.tone('sawtooth', 1318, 2240, .6, .07); A.noise(.5, .18, 'bandpass', 3200, 1500, 2); A.tone('sine', 82, 32, 1, .8); },
   whoosh() { A.noise(.24, .35, 'bandpass', 1500, 380, 1.4); },
@@ -77,7 +88,7 @@ const MUS = { next: 0, beat: 0, lvl: 0 };
 function updateMusic() {
   if (!A.c) return;
   const now = A.c.currentTime;
-  const want = (state === 'play' && K.mode === 'chase') ? 1 : 0;
+  const want = (state === 'play' && chasedView()) ? 1 : 0;   // Team: nur, wer selbst gejagt wird (bzw. der Killer-Spieler)
   A.mus.gain.setTargetAtTime(want * .5, now, want ? .25 : 1.2);
   MUS.lvl = want ? 1 : Math.max(0, MUS.lvl - 1 / 60 / 3);
   if (MUS.lvl > 0) {

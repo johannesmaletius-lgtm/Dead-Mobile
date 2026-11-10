@@ -50,6 +50,7 @@ function check(def, id) {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if ((G[y][x] === '.' || G[y][x] === 'P') && !room[I(x, y)]) { err(`Bodenkachel ohne Raum bei ${at(x, y)} – dort fehlt ein Raum-Marker`); y = H; break; }
   // Raumtabelle
   const rdefs = def.rooms || {};
+  const outRoom = r => { const d = rdefs[r] || rdefs[r > 9 ? String.fromCharCode(87 + r) : String(r)]; return !!(d && (d.out || d.outside)); };
   for (const c of markers) {
     const d = rdefs[c] || rdefs[roomId(c)];
     if (!d) { err(`Raum '${c}' fehlt in "rooms"`); continue; }
@@ -76,7 +77,7 @@ function check(def, id) {
     const [a, b] = h ? [[x, y - 1], [x, y + 1]] : [[x - 1, y], [x + 1, y]];
     const okA = ch(...a) === '.' || ch(...a) === 'P', okB = ch(...b) === '.' || ch(...b) === 'P';
     if (!okA || !okB) err(`${c === 'D' ? 'Tür' : 'Fenster'} bei ${at(x, y)}: beide Seiten müssen Boden sein`);
-    else if (room[I(...a)] === room[I(...b)]) warn(`${c === 'D' ? 'Tür' : 'Fenster'} bei ${at(x, y)} verbindet denselben Raum`);
+    else if (room[I(...a)] === room[I(...b)] && !(c === 'W' && outRoom(room[I(...a)]))) warn(`${c === 'D' ? 'Tür' : 'Fenster'} bei ${at(x, y)} verbindet denselben Raum`);   // draußen erlaubt: Jungle Gym
   }
   // Objekte, die Boden berühren müssen
   const names = { G: 'Aggregat', F: 'Sicherungskasten', V: 'Ventil', H: 'Haken', Y: 'Duo-Station' };
@@ -102,13 +103,13 @@ function check(def, id) {
     const ra = room[I(...ys[0])] || room[I(ys[0][0], ys[0][1] + 1)], rb = room[I(...ys[1])] || room[I(ys[1][0], ys[1][1] + 1)];
     if (ra !== rb) warn('Duo-Stationen liegen in verschiedenen Räumen');
   }
-  if (team && regular !== 7) warn(`Team-Karte: ${regular} normale Aufgaben (gewünscht 7)`);
+  if (team && (regular < 7 || regular > 10)) warn(`Team-Karte: ${regular} normale Aufgaben (gewünscht 9)`);
   if ((count.G || 0) < (team ? 3 : 1)) warn(`Nur ${count.G || 0} Aggregate`);
   const points = regular + (count.Y === 2 ? 2 : 0);
   if (def.need && def.need > points) err(`need=${def.need}, aber nur ${points} Punkte vorhanden`);
   // Mengen
   const rng = (c, lo, hi, name) => { const n = count[c] || 0; if (n < lo || n > hi) warn(`${n} ${name} (gewünscht ${lo}–${hi})`); };
-  if (team) { rng('H', 6, 8, 'Haken'); rng('P', 12, 18, 'Paletten'); rng('W', 8, 14, 'Fenster'); rng('L', 12, 18, 'Spinde'); }
+  if (team) { rng('H', 6, 8, 'Haken'); rng('P', 12, 18, 'Paletten'); rng('W', 8, 16, 'Fenster'); rng('L', 12, 18, 'Spinde'); }
   if ((count.H || 0) < 3) err(`Nur ${count.H || 0} Haken`);
   // Tore
   const gates = [];
@@ -220,7 +221,7 @@ function parseAnswer(txt, notes = []) {
   const rows = findGrid(txt.slice(0, js.start) + '\n' + txt.slice(js.end), notes);
   if (!rows) throw new Error('Raster nicht gefunden (mindestens 10 gleich lange Zeilen aus Rasterzeichen)');
   const rooms = {}; for (const [k, d] of Object.entries(meta.rooms || {})) rooms[k] = { name: d.name, f: d.floor || d.f, out: d.outside || d.out ? 1 : 0 };
-  return { name: meta.name, team: true, need: meta.need || 6, grid: rows, rooms, lamps: meta.lamps || [], spawns: meta.spawns || [] };
+  return { name: meta.name, team: true, need: meta.need || 8, grid: rows, rooms, lamps: meta.lamps || [], spawns: meta.spawns || [] };
 }
 /* Selbsttest: dieselbe Antwort in mehreren Kopier-Varianten muss gleich ausgelesen werden */
 function selftest() {

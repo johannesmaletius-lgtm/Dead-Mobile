@@ -212,7 +212,8 @@ function hpop() {
   return top;
 }
 let kcS = false; // Pfad für Survivors: gesperrte Fenster sind zu
-function kc(x, y) { const c = ch(x, y); if (c === '.' || c === 'D') return 1; if (c === 'P') return palletAt[I(x, y)].state === 1 ? 3 : 1; if (c === 'W') return kcS && T < windowAt[I(x, y)].blockedUntil ? 0 : 2; return 0; }
+let kAvoid = null; // Kacheln, die der Killer bei dieser Wegsuche meiden soll (Set aus Indizes, js/killer.js)
+function kc(x, y) { if (kAvoid && kAvoid.has(I(x, y))) return 0; const c = ch(x, y); if (c === '.' || c === 'D') return 1; if (c === 'P') return palletAt[I(x, y)].state === 1 ? 3 : 1; if (c === 'W') return kcS && T < windowAt[I(x, y)].blockedUntil ? 0 : 2; return 0; }
 const axisOf = (x, y) => (windowAt[I(x, y)] || palletAt[I(x, y)]).ax;
 function nearestWalk(x, y) {
   if (kc(x, y) === 1) return [x, y];

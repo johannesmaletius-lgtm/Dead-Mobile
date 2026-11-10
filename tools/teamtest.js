@@ -163,19 +163,19 @@ if (dir) fs.mkdirSync(dir, { recursive: true });
     const left = inRoom.slice(5).every(v => !v);
     return { ok: ok1 && left, info: `am Haken nach ${tHook}s, Haken-Raum ${hookRoom}, Killer im Haken-Raum (s 1–12): ${inRoom.join('')}` };
   });
-  await scen('Haken-Fortschritt, Kampfphase ab 0,5, Tod bei 1 (2 × 30 s)', () => {
+  await scen('Haken-Fortschritt, Kampfphase ab 0,5, Tod bei 1 (2 × 36 s)', () => {
     const t = window.__t, n = window.__ns, S = n.S;
     t.idleK(); const h = S.hung;
     // Kamera am Haken: S hängt, die Sicht folgt S
     const p0 = S.hookProg; n.tick(10); const rate = (S.hookProg - p0) / 10;
-    t.until(() => S.hookProg >= .55, 30);
+    t.until(() => S.hookProg >= .55, 36);
     window.__hookShot = { hp: S.hookProg };
-    return { ok: Math.abs(rate - 1 / 60) < .002 && S.hookProg >= .5 && !!S.hung && !S.out, info: `Rate ${rate.toFixed(4)}/s (Soll ${(1 / 60).toFixed(4)}), jetzt ${S.hookProg.toFixed(2)}` };
+    return { ok: Math.abs(rate - 1 / 72) < .002 && S.hookProg >= .5 && !!S.hung && !S.out, info: `Rate ${rate.toFixed(4)}/s (Soll ${(1 / 72).toFixed(4)}), jetzt ${S.hookProg.toFixed(2)}` };
   });
   await shot('02-haken-kampfphase');
   await scen('… Haken bei 1 → geopfert (Klauen), Zuschauen', () => {
     const t = window.__t, n = window.__ns, S = n.S;
-    t.until(() => !!S.out, 30);
+    t.until(() => !!S.out, 36);
     const dead = S.out === 'dead', d = n.deaths.find(x => x.sv === S);
     n.tick(1.3);
     const stay = n.viewer() === S && document.querySelector('#specBar').hidden;   // erst Abschied (Klauen)
@@ -337,7 +337,7 @@ if (dir) fs.mkdirSync(dir, { recursive: true });
       info: `Aktion ${kind} Station ${sta}, Fortschritt nach 5 s: ${duo.prog}` };
   });
   await shot('09-duo-warten');
-  await scen('… zu zweit 20 s, Skill-Checks je Person, zählt 2 Punkte', () => {
+  await scen('… zu zweit 22 s, Skill-Checks je Person, zählt 2 Punkte', () => {
     const t = window.__t, n = window.__ns, S = n.S, A = n.SV[1], duo = n.tasks.find(x => x.type === 'duo');
     const st = duo.stations[1];
     const taken = n.startWorkFor(A, duo, 0);                           // besetzt
@@ -346,12 +346,12 @@ if (dir) fs.mkdirSync(dir, { recursive: true });
     A.ctl = (sv, dt) => n.workStep(sv, duo, dt, 1);
     t.auto(5); const p5 = duo.prog;
     window.__duoShot = true;
-    return { ok: !taken && ok2 && p5 > .22 && p5 < .28, info: `Station 0 doppelt: ${taken}, A an Station 1: ${ok2}, nach 5 s ${p5.toFixed(3)}` };
+    return { ok: !taken && ok2 && p5 > .2 && p5 < .26, info: `Station 0 doppelt: ${taken}, A an Station 1: ${ok2}, nach 5 s ${p5.toFixed(3)}` };
   });
   await shot('10-duo-zu-zweit');
-  await scen('… fertig nach 20 s', () => {
+  await scen('… fertig nach 22 s', () => {
     const t = window.__t, n = window.__ns, duo = n.tasks.find(x => x.type === 'duo');
-    t.auto(15.3);
+    t.auto(17.3);
     return { ok: duo.done && n.taskPoints() === 2 && !n.S.work && !n.SV[1].work && n.Q === null, info: `fertig ${duo.done}, Punkte ${n.taskPoints()}/${n.need}` };
   });
   await scen('… Bot verpasst Checks: −10 % und Lärm', () => {
@@ -359,12 +359,12 @@ if (dir) fs.mkdirSync(dir, { recursive: true });
     A.x = g.ax; A.y = g.ay; n.startWorkFor(A, g); A.ctl = (sv, dt) => n.workStep(sv, g, dt, 0);
     const orig = window.noise; let loud = 0; window.noise = (x, y, R, l) => { if (l) loud++; return orig(x, y, R, l); };
     n.tick(4.6); window.noise = orig;
-    const exp = 4.6 / 14;
+    const exp = 4.6 / 18;
     return { ok: g.prog < exp - .05 && loud > 0, info: `Fortschritt ${g.prog.toFixed(3)} statt ${exp.toFixed(3)}, laute Geräusche: ${loud}` };
   });
 
-  // 9) 40-s-Regel
-  await scen('40-s-Regel: Abbruch, Hinweis, Suche beim nächsten anderen Survivor', () => {
+  // 9) 35-s-Regel
+  await scen('35-s-Regel: Abbruch, Hinweis, Suche beim nächsten anderen Survivor', () => {
     const t = window.__t, n = t.fresh(), S = n.S, [, A, B] = n.SV;
     S.x = 34.5; S.y = 12.5; A.x = 10.5; A.y = 11.5; B.x = 3.5; B.y = 3.5;
     n.ktp(38.5, 12.5); n.K.dir = Math.PI; t.freeK();
@@ -376,8 +376,8 @@ if (dir) fs.mkdirSync(dir, { recursive: true });
     const h0 = n.K.hunt.t; n.dropPallet(pal, S); const hStun = n.K.hunt.t;
     n.K.act = null; n.K.x = kx; n.K.y = ky; S.x = sx; S.y = sy; pal.state = 0;
     n.hitSurvivor(S); const hHit = n.K.hunt.t; S.hp = 2; n.K.act = null; S.burst = 0;
-    // jetzt kurz vor 40 s
-    n.K.mode = 'chase'; n.K.target = S; n.K.hunt.sv = S; n.K.hunt.t = 39.8; n.K.hunt.last = T; n.K.seenT = 0;
+    // jetzt kurz vor 35 s
+    n.K.mode = 'chase'; n.K.target = S; n.K.hunt.sv = S; n.K.hunt.t = 34.8; n.K.hunt.last = T; n.K.seenT = 0;
     n.tick(.3);
     const ig = n.K.ignore, inv = n.K.inv;
     n.tick(.4); // Hinweis einblenden (für das Bild)

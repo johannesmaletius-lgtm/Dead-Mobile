@@ -102,6 +102,8 @@ function investigate(x, y, kind) {
 }
 function startSearch(x, y, lockerChance) {
   K.mode = 'search'; K.search = { x, y, until: T + 7, lockerChance }; K.goal = null; K.path = null;
+  // Team: Spinde, in denen sich immer wieder jemand versteckt, merkt er sich und sieht dort zuerst nach
+  if (MODE === 'team') { const L = lockers.find(L => L.uses >= 2 && T - L.memT > 25 && hyp(L.cx - x, L.cy - y) < 7); if (L) { L.memT = T; K.search.must = L; K.search.until = T + 9; } }
   if (!K.act) K.act = { kind: 'look', t: 0, dur: 1, base: K.dir };
 }
 function startChase(sv) {
@@ -110,9 +112,9 @@ function startChase(sv) {
   K.target = sv; K.mode = 'chase'; K.aware = 1; K.chaseT = 0; K.blood = 0; K.seenT = T; K.lastSeen = { x: sv.x, y: sv.y }; K.trailT = T;
   K.path = null; K.goal = null;
   if (K.act && ['look', 'kick', 'locker'].includes(K.act.kind)) K.act = null;
-  SFX.sting(); chaseFlash = 1;
+  if (MODE !== 'team') { SFX.sting(); chaseFlash = 1; }   // Team: nur der Gejagte hört den Stich (chaseCue in js/flow.js)
 }
-function loseChase() { if (K.mode === 'chase') stats.chasesWon++; K.aware = 0; K.blood = 0; K.breakP = null; pallets.forEach(p => p.loopT = 0); startSearch(K.lastSeen.x, K.lastSeen.y, .45); }
+function loseChase() { if (K.mode === 'chase') stats.chasesWon++; K.aware = 0; K.blood = 0; K.breakP = null; K.loop.alt = null; pallets.forEach(p => p.loopT = 0); startSearch(K.lastSeen.x, K.lastSeen.y, .45); }
 function nearestLocker(p, R) { let b = null, bd = R; for (const L of lockers) { const d = hyp(L.cx - p.x, L.cy - p.y); if (d < bd) { bd = d; b = L; } } return b; }
 function randomPointNear(x, y, R) {
   for (let i = 0; i < 16; i++) { const tx = Math.floor(x + rand(-R, R)), ty = Math.floor(y + rand(-R, R)); if (kc(tx, ty) === 1 && !circleHit(tx + .5, ty + .5, K.r)) return { x: tx + .5, y: ty + .5 }; }
@@ -140,8 +142,9 @@ function pickPatrol() {
 function updateKiller(dt) {
   const m = mask[I(K.x | 0, K.y | 0)]; if (m) K.mask = m;
   if (K.net) { K.net(dt); return; }   // Online-Client: der Killer kommt vom Host (js/sync.js)
+  if (K.human) { humanKiller(dt); return; }   // ein Spieler steuert ihn (js/hkiller.js)
   if (K.ctl) { if (K.act) runAct(dt); else K.ctl(dt); return; }
-  if (K.moving) { K.stepT -= dt; if (K.stepT <= 0) { K.stepT = K.mode === 'chase' ? .28 : .42; if (state === 'play' && killerVisible()) SFX.kstep(); } }
+  if (K.moving) { K.stepT -= dt; if (K.stepT <= 0) { K.stepT = K.mode === 'chase' ? .28 : .42; if (state === 'play' && killerVisible()) hear(K.x, K.y, SFX.kstep); } }
   // Team: Liegende aufheben (Vorrang), tragen, aufhängen
   if (MODE === 'team' && killerTeam(dt)) return;
   // Wen sieht er? Fokus = der Nächste (das laufende Jagdziel zählt 3 Kacheln näher)
@@ -170,6 +173,7 @@ function updateKiller(dt) {
     else p.loopT = Math.max(0, (p.loopT || 0) - dt * .2);
   }
   if (MODE === 'team' && huntTick(dt)) return;
+  if (MODE === 'team' && CFG.smart && !K.act && (swipe(seenL) || retarget(seenL))) return;
   if (K.act) {
     if (K.act.kind === 'look' && K.aware > .3) K.act = null;
     else { runAct(dt); return; }
@@ -203,8 +207,9 @@ function updateKiller(dt) {
   } else if (K.mode === 'search') {
     if (T > K.search.until) { K.mode = 'patrol'; K.goal = null; return; }
     if (!K.goal) {
-      const L = nearestLocker(K.search, 4);
-      if (L && Math.random() < K.search.lockerChance) { K.search.lockerChance = 0; K.goal = { x: L.front.x, y: L.front.y, locker: L }; }
+      const L = K.search.must || nearestLocker(K.search, 4);
+      if (K.search.must) { K.search.must = null; K.goal = { x: L.front.x, y: L.front.y, locker: L }; }
+      else if (L && Math.random() < K.search.lockerChance) { K.search.lockerChance = 0; K.goal = { x: L.front.x, y: L.front.y, locker: L }; }
       else K.goal = randomPointNear(K.search.x, K.search.y, 4.5);
     }
     if (goTo(K, K.goal.x, K.goal.y, kSpeed() * .9, dt)) {
@@ -233,19 +238,91 @@ function chase(dt, sees) {
     else { tx = K.lastSeen.x; ty = K.lastSeen.y; if (hyp(K.x - tx, K.y - ty) < .6) { loseChase(); return; } }
   }
   const d = hyp(tg.x - K.x, tg.y - K.y);
-  if (!(TUT && TUT.noLunge) && sees && !tg.hidden && d < CFG.lungeAt && lineWalk(K.x, K.y, tg.x, tg.y, .22)) { K.act = { kind: 'lunge', t: 0, dur: CFG.lungeT }; SFX.whoosh(); return; }
+  if (!(TUT && TUT.noLunge) && sees && !tg.hidden && d < CFG.lungeAt && lineWalk(K.x, K.y, tg.x, tg.y, .22)) { K.act = { kind: 'lunge', t: 0, dur: CFG.lungeT }; hear(K.x, K.y, SFX.whoosh); return; }
   // Jagt er länger als 20 s um dieselbe Palette, zerbricht er sie einfach
   let loopP = K.breakP && K.breakP.state !== 2 ? K.breakP : null;
-  if (!loopP) for (const p of pallets) if (p.state !== 2 && p.loopT > CFG.palletLoop) { loopP = p; break; }
+  if (!loopP) for (const p of pallets) if (p.state !== 2 && p.loopT > loopLimit(tg)) { loopP = p; break; }
   if (loopP && hyp(tg.x - loopP.cx, tg.y - loopP.cy) > 8) { loopP = null; K.breakP = null; }
   if (loopP && !Lk) {
     K.breakP = loopP;
     const ax = loopP.ax, s = Math.sign((K.x - loopP.cx) * ax.x + (K.y - loopP.cy) * ax.y) || 1;
     const apx = loopP.cx + ax.x * s * .88, apy = loopP.cy + ax.y * s * .88;
-    if (hyp(K.x - apx, K.y - apy) < .22) { K.dir = Math.atan2(-ax.y * s, -ax.x * s); K.act = { kind: 'break', t: 0, dur: CFG.kBreak, p: loopP }; loopP.loopT = 0; K.breakP = null; return; }
+    if (hyp(K.x - apx, K.y - apy) < .22) { K.dir = Math.atan2(-ax.y * s, -ax.x * s); K.act = { kind: 'break', t: 0, dur: CFG.kBreak, p: loopP }; loopP.loopT = 0; K.breakP = null; memAdd(tg); return; }
     goTo(K, apx, apy, kSpeed(), dt); return;
   }
+  if (MODE === 'team' && CFG.smart && smartChase(tg, tx, ty, sees, d, dt)) return;
   goTo(K, tx, ty, kSpeed(), dt);
+}
+/* ================= Klügerer Killer (nur Team) =================
+   Seitenhieb: Wer in Reichweite steht, wird sofort geschlagen – auch wenn er gerade jemand anderen jagt oder nur sucht. */
+function swipe(seenL) {
+  let b = null, bd = CFG.swipeR;
+  for (const v of seenL) { if (v.hidden || kIgnores(v) || (K.mode === 'chase' && v === K.target)) continue; const d = hyp(v.x - K.x, v.y - K.y); if (d < bd && lineWalk(K.x, K.y, v.x, v.y, .22)) { bd = d; b = v; } }
+  if (!b) return false;
+  if (K.mode !== 'chase') startChase(b);
+  K.dir = turn(K.dir, Math.atan2(b.y - K.y, b.x - K.x), 1.2);
+  K.act = { kind: 'lunge', t: 0, dur: CFG.lungeT, sv: b }; hear(K.x, K.y, SFX.whoosh);
+  return true;
+}
+/* Zielwechsel: Läuft ihm ein anderer vor die Füße (näher, verletzt), jagt er lieber den. */
+function retarget(seenL) {
+  if (K.mode !== 'chase' || !K.target || T < K.swT) return false;
+  const sc = v => hyp(v.x - K.x, v.y - K.y) - (v.hp < 2 ? 2 : 0) + (kIgnores(v) ? 6 : 0);
+  let b = null, bs = CFG.switchNear;
+  for (const v of seenL) if (v !== K.target && !v.hidden) { const s = sc(v); if (s < bs) { bs = s; b = v; } }
+  if (!b || bs >= sc(K.target) - 1.5 + (T - K.seenT > 1.2 ? 4 : 0)) return false;
+  K.target = b; K.swT = T + 3; K.seenT = T; K.lastSeen = { x: b.x, y: b.y }; K.trailT = T; K.path = null; K.breakP = null; K.loop.alt = null;
+  return false;
+}
+/* Lernen: Je öfter ihn derselbe Survivor im Kreis führt, desto früher zerbricht er die Palette / schneidet den Weg ab. */
+const memN = sv => (K.mem.loops[sv.id] | 0);
+function memAdd(sv) { if (MODE === 'team') K.mem.loops[sv.id] = memN(sv) + 1; }
+const loopLimit = sv => MODE === 'team' ? CFG.loopLearn[Math.min(CFG.loopLearn.length - 1, memN(sv))] : CFG.palletLoop;
+/* Umweg: derselbe Weg, aber die nächsten Kacheln sind gesperrt – so läuft er andersherum um das Hindernis. */
+function altPath(tx, ty) {
+  const base = findPath(K.x | 0, K.y | 0, tx | 0, ty | 0); if (!base || base.length < 4) return null;
+  const set = new Set();
+  for (let k = 0; k < Math.min(3, base.length - 2); k++) { const n = base[k], x = n % W, y = (n / W) | 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (x + dx >= 0 && y + dy >= 0 && x + dx < W && y + dy < H) set.add(I(x + dx, y + dy)); }
+  set.delete(I(K.x | 0, K.y | 0));
+  kAvoid = set; const alt = findPath(K.x | 0, K.y | 0, tx | 0, ty | 0); kAvoid = null;
+  return alt && alt.length >= base.length + 3 && alt.length <= base.length * 2.5 + 8 ? alt : null;
+}
+/* Jagd mit Köpfchen. Liefert true, wenn die Bewegung hier schon erledigt wurde.
+   – Dreht sich die Jagd lange um dieselbe Stelle (Tisch, Baum, Jungle Gym), täuscht er an und kommt andersherum.
+   – Springt das Ziel immer wieder durchs selbe Fenster, läuft er außen herum, statt hinterherzuklettern. */
+function smartChase(tg, tx, ty, sees, d, dt) {
+  const L = K.loop;
+  if (L.sv !== tg || hyp(tg.x - L.x, tg.y - L.y) > CFG.loopSpot) { L.sv = tg; L.x = tg.x; L.y = tg.y; L.t = 0; L.alt = null; }
+  else L.t += dt;
+  if (L.alt) {
+    if (T > L.fake || (d < 2.4 && sees) || K.pi >= L.alt.length) { L.alt = null; K.path = null; }
+    else { K.path = L.alt; followPath(K, tx, ty, kSpeed(), dt); return true; }
+  }
+  if (L.t > CFG.loopT / (1 + .5 * Math.min(2, memN(tg))) && T > L.fake + 3 && d < 8 && d > 2.5) {
+    L.t *= .45;
+    const alt = altPath(tx, ty);
+    if (alt) { L.alt = alt; L.fake = T + CFG.fakeT; K.path = alt; K.pi = 0; memAdd(tg); followPath(K, tx, ty, kSpeed(), dt); return true; }
+  }
+  // Schon einmal mit einer Palette betäubt worden: Lauert das Ziel hinter einer stehenden Palette, läuft er außen herum
+  if (K.mem.stuns > 0) for (const p of pallets) {
+    if (p.state !== 0 || hyp(tg.x - p.cx, tg.y - p.cy) > 1.7 || hyp(K.x - p.cx, K.y - p.cy) > 5) continue;
+    if (T > (p.avT || 0)) {
+      p.avT = T + .7; p.avSet = p.avSet || new Set([I(p.x, p.y)]);
+      const a = findPath(K.x | 0, K.y | 0, tx | 0, ty | 0); kAvoid = p.avSet; const b = findPath(K.x | 0, K.y | 0, tx | 0, ty | 0); kAvoid = null;
+      p.avOk = !!(a && b && a.includes(I(p.x, p.y)) && b.length <= a.length + 12);
+    }
+    if (p.avOk) { kAvoid = p.avSet; goTo(K, tx, ty, kSpeed(), dt); kAvoid = null; return true; }
+  }
+  const lw = tg.lastWin;
+  if (lw && lw.n >= 2 && T - lw.t < 6) {
+    if (T > (lw.ct || 0)) {
+      lw.ct = T + .7;
+      const a = findPath(K.x | 0, K.y | 0, tx | 0, ty | 0); kAvoid = lw.set; const b = findPath(K.x | 0, K.y | 0, tx | 0, ty | 0); kAvoid = null;
+      lw.ok = !!(a && b && b.length <= a.length + 16);
+    }
+    if (lw.ok) { kAvoid = lw.set; goTo(K, tx, ty, kSpeed(), dt); kAvoid = null; return true; }
+  }
+  return false;
 }
 function runAct(dt) {
   const a = K.act; a.t += dt; const p = Math.min(1, a.t / a.dur);
@@ -253,29 +330,29 @@ function runAct(dt) {
     case 'look': K.dir = a.base + Math.sin(p * TAU) * .95; K.moving = false; break;
     case 'kick':
       K.moving = false;
-      if (!a.hit && p > .6) { a.hit = true; a.task.prog = Math.max(0, a.task.prog - .15); SFX.kick(); for (let i = 0; i < 12; i++) parts.push({ x: a.task.cx, y: a.task.cy, z: .4, vx: rand(-2, 2), vy: rand(-1, 1), vz: rand(1, 3), g: 9, life: .5, max: .5, col: '255,90,60', sz: .05 }); }
+      if (!a.hit && p > .6) { a.hit = true; a.task.prog = Math.max(0, a.task.prog - .15); hear(K.x, K.y, SFX.kick); for (let i = 0; i < 12; i++) parts.push({ x: a.task.cx, y: a.task.cy, z: .4, vx: rand(-2, 2), vy: rand(-1, 1), vz: rand(1, 3), g: 9, life: .5, max: .5, col: '255,90,60', sz: .05 }); }
       break;
     case 'locker':
       K.moving = false;
-      if (!a.opened && p > .45) { a.opened = true; a.L.anim = 1; SFX.locker(); const hv = SV.find(v => v.hidden === a.L); if (hv && state === 'play') { if (TUT) hitSurvivor(hv); else if (MODE === 'team') pickUp(hv); else caught(hv); return; } }
+      if (!a.opened && p > .45) { a.opened = true; a.L.anim = 1; hear(K.x, K.y, SFX.locker); const hv = SV.find(v => v.hidden === a.L); if (hv && state === 'play') { if (TUT) hitSurvivor(hv); else if (MODE === 'team') pickUp(hv); else caught(hv); return; } }
       break;
     case 'vault': K.x = lerp(a.fx, a.tx, p); K.y = lerp(a.fy, a.ty, p); K.z = Math.sin(p * Math.PI) * .45; K.moving = true; K.walk += dt * 5; break;
     case 'break':
       K.moving = false;
-      if (!a.done && p >= 1) { a.done = true; a.p.state = 2; SFX.crack(); shake(.2); for (let i = 0; i < 18; i++) parts.push({ x: a.p.cx, y: a.p.cy, z: .2, vx: rand(-2, 2), vy: rand(-1.5, 1.5), vz: rand(1, 3), g: 8, life: rand(.4, .9), max: .9, col: '120,90,55', sz: .06 }); }
+      if (!a.done && p >= 1) { a.done = true; a.p.state = 2; a.p.pred = T; hear(K.x, K.y, () => { SFX.crack(); shake(.2); }); for (let i = 0; i < 18; i++) parts.push({ x: a.p.cx, y: a.p.cy, z: .2, vx: rand(-2, 2), vy: rand(-1.5, 1.5), vz: rand(1, 3), g: 8, life: rand(.4, .9), max: .9, col: '120,90,55', sz: .06 }); }
       break;
     case 'stun': case 'wipe': K.moving = false; break;
     case 'pick': K.moving = false; if (!a.done && a.t >= a.dur) { a.done = true; if (isDowned(a.sv)) pickUp(a.sv); } break;
     case 'hook': K.moving = false; if (!a.done && a.t >= a.dur) { a.done = true; if (K.carry === a.sv) hookSurv(a.sv, a.h); } break;
     case 'lunge': {
-      const tg = K.target || S, want = Math.atan2(tg.y - K.y, tg.x - K.x);
+      const tg = a.sv || K.target || S, want = Math.atan2(tg.y - K.y, tg.x - K.x);
       K.dir = turn(K.dir, want, CFG.lungeTurn * dt);
       const lv = a.t < CFG.lungeWind ? CFG.kChase * 1.05 : CFG.lungeV;
       moveEnt(K, Math.cos(K.dir) * lv * dt, Math.sin(K.dir) * lv * dt);
       K.moving = true; K.walk += dt * 12;
       // Getroffen wird, wer im Weg steht – meist das Ziel
       if (state === 'play') for (const v of SV) if (!v.hidden && !v.ghost && !v.out && !v.carried && !v.hung && v.hp > 0 && hyp(v.x - K.x, v.y - K.y) < CFG.hitR && losClear(K.x, K.y, v.x, v.y)) { hitSurvivor(v); return; }
-      if (a.t >= a.dur) { SFX.whiff(); K.act = { kind: 'recover', t: 0, dur: CFG.recover }; }
+      if (a.t >= a.dur) { hear(K.x, K.y, SFX.whiff); K.act = { kind: 'recover', t: 0, dur: CFG.recover }; }
       return;
     }
     case 'recover': if (state === 'play') { const tg = K.target || S; moveK(tg.x, tg.y, 1.3, dt); } break;

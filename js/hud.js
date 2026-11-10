@@ -11,7 +11,7 @@ function drawOverlays(z, ox, oy) {
     ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
   }
   const vr = Math.max(VW, VH);
-  const tA = state === 'play' ? terror * .22 * (.45 + hbPulse * .8) + (K.mode === 'chase' ? .12 : 0) + chaseFlash * .35 + (V.hp < 2 ? .1 + .05 * Math.sin(T * 3) : 0) + (MODE === 'team' && !V.out && (V.hp <= 0 || V.hung) ? .14 + .08 * Math.sin(T * 4) : 0) : 0;
+  const tA = state === 'play' ? terror * .22 * (.45 + hbPulse * .8) + (chasedView() ? .12 : 0) + chaseFlash * .35 + (V.hp < 2 ? .1 + .05 * Math.sin(T * 3) : 0) + (MODE === 'team' && !V.out && (V.hp <= 0 || V.hung) ? .14 + .08 * Math.sin(T * 4) : 0) : 0;
   if (tA > .005) {
     const g = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * .3, VW / 2, VH / 2, vr * .72);
     g.addColorStop(0, 'rgba(150,0,10,0)'); g.addColorStop(1, `rgba(150,0,10,${Math.min(.85, tA)})`);
@@ -72,6 +72,7 @@ function icon(kind, cx, cy, s, col, lw = 2.2) {
     case 'carry': ctx.arc(-.35, -.62, .22, 0, TAU); ctx.fill(); ctx.beginPath(); ctx.moveTo(-.35, -.38); ctx.lineTo(-.35, .3); ctx.lineTo(-.6, .95); ctx.moveTo(-.35, .3); ctx.lineTo(-.1, .95); ctx.moveTo(-.75, -.05); ctx.lineTo(.85, -.32); ctx.stroke(); break;
     case 'heart': ctx.moveTo(0, .8); ctx.bezierCurveTo(-1.2, -.1, -.6, -.95, 0, -.3); ctx.bezierCurveTo(.6, -.95, 1.2, -.1, 0, .8); ctx.fill(); break;
     case 'hurt': ctx.moveTo(0, .8); ctx.bezierCurveTo(-1.2, -.1, -.6, -.95, 0, -.3); ctx.lineTo(-.12, .05); ctx.lineTo(.1, .3); ctx.closePath(); ctx.fill(); ctx.beginPath(); ctx.moveTo(.12, -.24); ctx.bezierCurveTo(.6, -.95, 1.2, -.1, .06, .74); ctx.lineTo(.22, .3); ctx.lineTo(-.02, .05); ctx.closePath(); ctx.fill(); break;
+    case 'attack': for (let k = -1; k <= 1; k++) { ctx.moveTo(-.55 + k * .42, .85); ctx.quadraticCurveTo(-.25 + k * .42, -.1, .5 + k * .42, -.9); } ctx.stroke(); break;
     case 'eye': ctx.moveTo(-.9, 0); ctx.quadraticCurveTo(0, -.75, .9, 0); ctx.quadraticCurveTo(0, .75, -.9, 0); ctx.stroke(); ctx.beginPath(); ctx.arc(0, 0, .26, 0, TAU); ctx.fill(); break;
   }
   ctx.restore();
@@ -85,22 +86,24 @@ function heart(cx, cy, s, fill, stroke) {
 function drawHUD(z, ox, oy) {
   // Aufgaben oben links (Zuschauer: Herzen des Teamkollegen)
   const hy = SAT + 24, V = viewer();
-  for (let k = 0; k < 2; k++) {
+  for (let k = 0; k < 2 && V !== K; k++) {
     const full = k < V.hp, cx = SAL + 18 + k * 22, pul = !full ? 0 : (V.hp < 2 ? 1 + .12 * Math.sin(T * 6) : 1);
     heart(cx, hy, 8.5 * (pul || 1), full ? '#c3121f' : 'rgba(6,7,12,.6)', full ? 'rgba(255,200,200,.5)' : 'rgba(235,231,220,.4)');
   }
-  let hx = SAL + 22 + 52;
+  // Team: viele Aufgaben – die Reihe rückt zusammen, damit sie auch auf schmale Bildschirme passt
+  const tStep = MODE === 'team' ? clamp((VW - SAL - SAR - 74 - 150) / (tasks.length + 1), 17, 34) : 34, tR = tStep * 14 / 34, tI = tStep * 7.5 / 34;
+  let hx = SAL + 22 + (V === K ? 0 : 52) + (tR - 14);
   for (const t of tasks) {
-    ctx.fillStyle = t.done ? 'rgba(242,193,75,.95)' : 'rgba(6,7,12,.6)'; ctx.beginPath(); ctx.arc(hx, hy, 14, 0, TAU); ctx.fill();
-    if (!t.done && t.prog > 0) { ctx.strokeStyle = '#f2c14b'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(hx, hy, 14, -Math.PI / 2, -Math.PI / 2 + TAU * t.prog); ctx.stroke(); }
-    else if (!t.done) { ctx.strokeStyle = 'rgba(235,231,220,.25)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(hx, hy, 14, 0, TAU); ctx.stroke(); }
-    icon(t.type, hx, hy, 7.5, t.done ? '#1a1406' : 'rgba(235,231,220,.75)', 2);
-    hx += 34;
+    ctx.fillStyle = t.done ? 'rgba(242,193,75,.95)' : 'rgba(6,7,12,.6)'; ctx.beginPath(); ctx.arc(hx, hy, tR, 0, TAU); ctx.fill();
+    if (!t.done && t.prog > 0) { ctx.strokeStyle = '#f2c14b'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(hx, hy, tR, -Math.PI / 2, -Math.PI / 2 + TAU * t.prog); ctx.stroke(); }
+    else if (!t.done) { ctx.strokeStyle = 'rgba(235,231,220,.25)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(hx, hy, tR, 0, TAU); ctx.stroke(); }
+    icon(t.type, hx, hy, tI, t.done ? '#1a1406' : 'rgba(235,231,220,.75)', 2);
+    hx += tStep;
   }
   hx += 4;
-  ctx.fillStyle = gatesPowered ? 'rgba(125,255,160,.9)' : 'rgba(6,7,12,.6)'; ctx.beginPath(); ctx.arc(hx, hy, 14, 0, TAU); ctx.fill();
-  icon('gate', hx, hy, 7.5, gatesPowered ? '#06140b' : 'rgba(235,231,220,.35)', 2);
-  if (MODE === 'team') pointsLabel(hx + 22, hy);
+  ctx.fillStyle = gatesPowered ? 'rgba(125,255,160,.9)' : 'rgba(6,7,12,.6)'; ctx.beginPath(); ctx.arc(hx, hy, tR, 0, TAU); ctx.fill();
+  icon('gate', hx, hy, tI, gatesPowered ? '#06140b' : 'rgba(235,231,220,.35)', 2);
+  if (MODE === 'team') pointsLabel(hx + tR + 8, hy);
   // Pfeile am Rand (ic: kleines Symbol am Pfeil)
   const edge = (wx, wy, col, ic) => {
     const sx = ox + wx * z, sy = oy + wy * z, m = 34;
@@ -125,6 +128,7 @@ function drawHUD(z, ox, oy) {
       if (sv.hung) edge(sv.hung.cx + .3, sv.hung.cy - .6, `rgba(255,45,45,${.7 + .3 * Math.sin(T * 6)})`, 'hook');
       else if (sv.hp <= 0 && !sv.carried) edge(sv.x, sv.y - .3, 'rgba(255,150,60,.95)', 'down');
     }
+    if (KP === 'local' && K.carry) for (const h of hooks) if (!hookBusy(h)) edge(h.cx + .3, h.cy - .6, 'rgba(255,45,45,.9)', 'hook');   // Killer-Spieler: wohin mit ihm?
     teamHUD(V);
     if (S.out) return; // Zuschauer: kein Aktionsknopf, kein Joystick
   }
@@ -143,9 +147,10 @@ function drawHUD(z, ox, oy) {
     let kind = null;
     if (a) kind = a.kind === 'task' ? a.o.type : a.kind === 'work' ? 'tap' : a.kind === 'vaultP' ? 'vault' : a.kind;
     if (a && a.kind === 'work' && Q.type === 'valve') kind = 'valve';
-    if (a && a.kind === 'healing') kind = 'tap'; else if (a && a.kind === 'unhooking') kind = 'rescue';
+    if (a && a.kind === 'healing') kind = 'tap'; else if (a && a.kind === 'unhooking') kind = 'rescue'; else if (a && a.kind === 'healed') kind = null;
+    if (a && KP === 'local') kind = ({ attack: 'attack', kpick: 'carry', khook: 'hook', kcarry: null, kbreak: 'drop', kvault: 'vault', klocker: 'hide', kkick: 'gen' })[a.kind];
     const live = !!kind, pulse = live ? .5 + .5 * Math.sin(T * 6) : 0;
-    const hot = (Q && Q.check && (Q.type === 'gen' || Q.type === 'heal' || Q.type === 'duo')) || (a && (a.kind === 'drop' || a.kind === 'vault') && K.mode === 'chase') || (a && a.kind === 'wiggle');
+    const hot = (Q && Q.check && (Q.type === 'gen' || Q.type === 'heal' || Q.type === 'duo')) || (a && (a.kind === 'drop' || a.kind === 'vault') && K.mode === 'chase') || (a && (a.kind === 'wiggle' || (a.kind === 'attack' && a.o) || a.kind === 'khook' || a.kind === 'kpick'));
     ctx.fillStyle = live ? (hot ? `rgba(195,18,31,${.45 + .25 * pulse})` : 'rgba(235,231,220,.16)') : 'rgba(6,7,12,.35)';
     ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.fill();
     ctx.strokeStyle = live ? `rgba(235,231,220,${.55 + .3 * pulse})` : 'rgba(235,231,220,.18)'; ctx.lineWidth = 2.5; ctx.stroke();

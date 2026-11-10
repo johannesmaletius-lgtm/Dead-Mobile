@@ -11,7 +11,7 @@
    Spiel-Haken für die Synchronisierung: Net.onGameStart(fn(info)), Net.onGameEnd(fn(grund)) – geben eine Abmeldefunktion zurück.
    Reservierte Typen (nicht selbst senden): hello welcome reject peers ping bye ~ join leave close */
 const Net = (() => {
-  const PROTO = 1, MAXP = 3, PREFIX = 'deadmobile-', ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const PROTO = 2, MAXP = 4, PREFIX = 'deadmobile-', ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
   const LIBS = ['https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js', 'https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js'];
   const URLP = new URLSearchParams(location.search);
   const LOCAL = URLP.get('net') === 'local';
@@ -21,7 +21,7 @@ const Net = (() => {
     offline: 'Online-Spiel nicht verfügbar (keine Internetverbindung?)',
     browser: 'Dein Browser unterstützt kein Online-Spiel.',
     notfound: 'Raum nicht gefunden',
-    full: 'Raum ist voll (max. 3)',
+    full: 'Raum ist voll (max. 4)',
     running: 'In diesem Raum läuft gerade ein Spiel.',
     version: 'Andere Spielversion – bitte beide neu laden.',
     timeout: 'Zeitüberschreitung – der Raum antwortet nicht.',
@@ -226,7 +226,10 @@ const Net = (() => {
       if (N.phase === 'game') return refuse(L, 'running');
       let id = 1; while (links.has(id)) id++;
       if (id >= MAXP) return refuse(L, 'full');
-      pend.delete(L); L.id = id; L.peer = { id, name: cleanName(m.name), skin: cleanSkin(m.skin) };
+      // Rolle: Überlebender, solange einer der 3 Plätze frei ist – sonst Killer (nur einer)
+      const role = N.peers.filter(p => p.role !== 'killer').length >= 3 ? 'killer' : 'surv';
+      if (role === 'killer' && N.peers.some(p => p.role === 'killer')) return refuse(L, 'full');
+      pend.delete(L); L.id = id; L.peer = { id, name: cleanName(m.name), skin: cleanSkin(m.skin), role };
       links.set(id, L); N.peers.push(L.peer); sortPeers();
       welcome(L); bcast({ t: 'peers', peers: N.peers }, id);
       emit('join', L.peer); emit('peers', N.peers);
@@ -249,6 +252,15 @@ const Net = (() => {
     }
     L.c.close();
   }
+  /* Host: Rolle eines Spielers setzen ('surv' | 'killer'); höchstens 3 Überlebende und ein Killer */
+  function setRole(id, role) {
+    if (!N.isHost || N.phase !== 'lobby') return false;
+    const p = N.peers.find(q => q.id === id); role = role === 'killer' ? 'killer' : 'surv';
+    if (!p || p.role === role) return false;
+    if (role === 'killer' ? N.peers.some(q => q.role === 'killer') : N.peers.filter(q => q.role !== 'killer').length >= 3) return false;
+    p.role = role; bcast({ t: 'peers', peers: N.peers }); emit('peers', N.peers);
+    return true;
+  }
   async function host(me = {}) {
     reset(); const g = ++gen, t = tr = makeTr(); N.phase = 'connecting';
     let code;
@@ -258,7 +270,7 @@ const Net = (() => {
       catch (e) { if (g !== gen) { t.stop(); throw fail('aborted'); } if (e.code === 'taken' && i < 6) continue; reset(); throw e; }
     }
     if (g !== gen) { t.stop(); throw fail('aborted'); }
-    Object.assign(N, { isHost: true, myId: 0, code, active: true, phase: 'lobby', peers: [{ id: 0, name: cleanName(me.name), skin: cleanSkin(me.skin) }] });
+    Object.assign(N, { isHost: true, myId: 0, code, active: true, phase: 'lobby', peers: [{ id: 0, name: cleanName(me.name), skin: cleanSkin(me.skin), role: 'surv' }] });
     startBeat(); emit('peers', N.peers);
     return code;
   }
@@ -326,5 +338,5 @@ const Net = (() => {
   // Tab wird geschlossen: das 'bye' so früh wie möglich losschicken (beforeunload kommt vor pagehide), dann aufräumen
   window.addEventListener('beforeunload', () => { for (const L of links.values()) tx(L, { t: 'bye' }); });
   window.addEventListener('pagehide', () => { if (N.active) leave(); });
-  return Object.assign(N, { host, join, leave, send, on, off, onGameStart: hook(startFns), onGameEnd: hook(endFns), gameStarted, gameEnded: endGame, normCode, okCode, ABC, MAXP });
+  return Object.assign(N, { setRole, host, join, leave, send, on, off, onGameStart: hook(startFns), onGameEnd: hook(endFns), gameStarted, gameEnded: endGame, normCode, okCode, ABC, MAXP });
 })();

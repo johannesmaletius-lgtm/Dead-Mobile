@@ -56,7 +56,7 @@ const Lobby = (() => {
   function hideNotice() { clearTimeout(noticeT); $('#notice').hidden = true; }
   function setBusy(on, txt) {
     busy = on;
-    for (const s of ['#tBots', '#tHost', '#tJoin', '#tName', '#tCode']) $(s).disabled = on;
+    for (const s of ['#tBots', '#tKiller', '#tHost', '#tJoin', '#tName', '#tCode']) $(s).disabled = on;
     for (const b of document.querySelectorAll('#tSkins .skin, #tMaps button')) b.disabled = on;
     setMsg('#tMsg', txt, on ? 'busy' : '');
   }
@@ -138,9 +138,9 @@ const Lobby = (() => {
 
   /* ---------- Spielen ---------- */
   // roster: [{ id, name, skin, kind }]; online kommt spawn vom Host
-  function launch(map, roster, spawn, online) {
+  function launch(map, roster, spawn, online, killer) {
     screens(null); hideNotice(); net = online;
-    startTeam(map, roster, spawn);
+    startTeam(map, roster, spawn, killer);
     gameButtons(true);
   }
   function playBots() {
@@ -149,6 +149,13 @@ const Lobby = (() => {
     const map = pickMap(), roster = [Object.assign({ id: 0, kind: 'local' }, m), { id: 1, kind: 'bot', skin: free[0] }, { id: 2, kind: 'bot', skin: free[1] }];
     last = { map, roster };
     launch(map, roster, undefined, false);
+  }
+  // Offline als Killer gegen drei Bots
+  function playKiller() {
+    if (busy) return;
+    const map = pickMap(), roster = skins().slice(0, 3).map((s, i) => ({ id: i, kind: 'bot', skin: s }));
+    last = { map, roster, killer: 'local' };
+    launch(map, roster, undefined, false, 'local');
   }
   async function create() {
     if (busy) return;
@@ -166,13 +173,15 @@ const Lobby = (() => {
   }
 
   /* ---------- Raum (Lobby) ---------- */
-  // 3 Plätze, Platz = ID; freie Plätze werden Bots (mit den noch freien Figuren)
+  // 3 Plätze für Überlebende (ID = Spieler-ID); freie Plätze werden Bots (mit den noch freien Figuren und freien IDs).
+  // Wer die Rolle „Killer“ gewählt hat, steht nicht in dieser Liste (killerPeer).
+  const killerPeer = () => Net.peers.find(p => p.role === 'killer') || null;
   function seats() {
-    const ps = Net.peers, used = new Set(ps.map(p => p.skin)), free = skins().filter(s => !used.has(s)), out = [];
-    for (let id = 0; id < 3; id++) {
-      const p = ps.find(q => q.id === id);
-      out.push(p ? { id, name: p.name, skin: p.skin, human: true } : { id, name: '', skin: free.shift() || skins()[id % skins().length], human: false });
-    }
+    const ps = Net.peers.filter(p => p.role !== 'killer').slice(0, 3), used = new Set(ps.map(p => p.skin)), free = skins().filter(s => !used.has(s));
+    const ids = [0, 1, 2, 3].filter(id => !Net.peers.some(p => p.id === id)), out = [];
+    for (const p of ps) out.push({ id: p.id, name: p.name, skin: p.skin, human: true });
+    out.sort((a, b) => a.id - b.id);
+    while (out.length < 3) { const id = ids.shift(); out.push({ id, name: '', skin: free.shift() || skins()[out.length % skins().length], human: false }); }
     return out;
   }
   let lastIds = '';
@@ -195,23 +204,35 @@ const Lobby = (() => {
       list.append(li);
     }
     lastIds = ids;
-    $('#rCount').textContent = Net.peers.length + ' / 3';
-    $('#rHint').textContent = host ? 'Sag deinen Freunden den Code. Freie Plätze übernehmen Bots.' : 'Du bist drin. Der Host wählt die Karte und startet.';
+    // Killer: ein Mitspieler oder die KI; jeder kann die Rolle wechseln, solange der Platz frei ist
+    const kp = killerPeer(), kr = $('#rKiller'), mine = kp && kp.id === Net.myId, me2 = Net.peers.find(p => p.id === Net.myId);
+    kr.className = 'slot kil' + (kp ? '' : ' bot') + (mine ? ' me' : '');
+    kr.textContent = '';
+    const kn = el('div', 'nm'); kn.append(el('b', '', kp ? shown(kp) || 'Spieler ' + (kp.id + 1) : 'KI'), el('small', '', 'Killer'));
+    const ki = el('span', 'kico'); ki.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 20c2-5 5-10 10-16M10 21c2-5 5-10 10-16M2 19c2-5 5-10 10-16"/></svg>';
+    kr.append(ki, kn, el('span', 'tag' + (mine ? ' me' : ''), mine ? 'Du' : kp ? 'Spieler' : 'frei'));
+    const rb = $('#rRole'), survN = Net.peers.filter(p => p.role !== 'killer').length;
+    rb.textContent = mine ? 'Überlebenden spielen' : 'Killer spielen';
+    rb.disabled = mine ? survN >= 3 : !!kp;
+    rb.hidden = !me2;
+    $('#rCount').textContent = Net.peers.length + ' / ' + Net.MAXP;
+    $('#rHint').textContent = host ? 'Sag deinen Freunden den Code. Freie Plätze übernehmen Bots, den Killer die KI.' : 'Du bist drin. Der Host wählt die Karte und startet.';
     if (roomMap) mapPicker($('#rMaps'), roomMap, host && (id => { roomMap = id; save.map = id; persist(); Net.send({ t: 'lobby', map: id }); renderRoom(); }));
     else $('#rMaps').textContent = '…';
     $('#rStart').hidden = !host; $('#rWait').hidden = host;
   }
   function hostStart() {
     if (!Net.isHost || view !== 'room') return;
-    const m = { t: 'start', map: roomMap, spawn: (Math.random() * 9973) | 0, roster: seats() };
+    const kp = killerPeer(), m = { t: 'start', map: roomMap, spawn: (Math.random() * 9973) | 0, roster: seats(), killer: kp ? kp.id : -1 };
     Net.send(m); begin(m);
   }
   // Alle (Host und Clients): Spiel mit den Daten des Hosts starten
   function begin(m) {
     if (!MAPS[m.map] || !Array.isArray(m.roster)) { Net.leave(); toTitle(); notice('Unbekannte Karte – bitte das Spiel neu laden.'); return; }
     const roster = m.roster.slice(0, 3).map(p => ({ id: p.id, name: cleanName(p.name), skin: p.skin, kind: p.human ? (p.id === Net.myId ? 'local' : 'remote') : 'bot' }));
-    launch(m.map, roster, m.spawn, true);
-    Net.gameStarted({ map: m.map, spawn: m.spawn, roster });
+    const kid = Number.isInteger(m.killer) ? m.killer : -1;
+    launch(m.map, roster, m.spawn, true, kid < 0 ? null : kid === Net.myId ? 'local' : 'remote');
+    Net.gameStarted({ map: m.map, spawn: m.spawn, roster, killer: kid });
   }
   // Nach dem Spiel zurück in den Raum (Host nimmt alle mit)
   function toRoom() {
@@ -224,7 +245,7 @@ const Lobby = (() => {
   /* ---------- Knöpfe aus main.js ---------- */
   function again() {   // Endbildschirm „Nochmal" im Team-Modus
     if (inNetGame()) { toRoom(); return; }
-    if (last) launch(last.map, last.roster, undefined, false); else if (teamRoster) teamRestart(); else playBots();
+    if (last) launch(last.map, last.roster, undefined, false, last.killer); else if (teamRoster) teamRestart(); else playBots();
   }
   function restart() { if (!inNetGame()) again(); }   // Pause-Menü „Neu starten" (online ausgeblendet)
   function leaveGame() { if (inNetGame()) Net.leave(); toTitle(); }
@@ -239,6 +260,8 @@ const Lobby = (() => {
   Net.on('peers', renderRoom);
   Net.on('join', p => { if (Net.isHost) Net.send({ t: 'lobby', map: roomMap }, p.id); });
   Net.on('leave', p => { if (inNetGame() && state !== 'title') toast(shown(p) + ' hat das Spiel verlassen'); });
+  // Rollenwunsch eines Mitspielers (der Host entscheidet)
+  Net.on('role', (m, from) => { if (Net.isHost && view === 'room') Net.setRole(from, m && m.r); });
   Net.on('lobby', m => { if (!Net.isHost && MAPS[m.map]) { roomMap = m.map; renderRoom(); } });
   Net.on('start', m => { if (!Net.isHost) begin(m); });
   Net.on('back', () => { if (Net.isHost) return; if (view === 'room') Net.gameEnded('back'); else if (net) toRoom(); });
@@ -252,6 +275,12 @@ const Lobby = (() => {
   $('#teamBack').addEventListener('click', back);
   $('#roomBack').addEventListener('click', back);
   $('#tBots').addEventListener('click', playBots);
+  $('#tKiller').addEventListener('click', playKiller);
+  $('#rRole').addEventListener('click', () => {
+    if (view !== 'room' || !Net.active) return;
+    const kp = killerPeer(), r = kp && kp.id === Net.myId ? 'surv' : 'killer';
+    if (Net.isHost) Net.setRole(0, r); else Net.send({ t: 'role', r });
+  });
   $('#tHost').addEventListener('click', create);
   $('#tJoin').addEventListener('click', join);
   $('#rStart').addEventListener('click', hostStart);

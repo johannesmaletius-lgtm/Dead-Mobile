@@ -4,6 +4,7 @@
    Clients bestimmen nur die eigene Position/Animation und die eigenen QTEs.
 
    Nachrichten (20×/s bzw. sofort):
+     Killer-Client → Host  { t:'k', … }  eigener Killer: Position, Richtung, laufende Aktion (a, an, ai), bestätigte Zwangslage kf
      Client → Host  { t:'c', … }  eigener Zustand: Position, Richtung, Animation, Aufgabe + Fortschritt, wen er heilt/rettet
                     { t:'e', k }  Ereignis: pallet · vault · hide · unhide · qfail/tfail/hfail (Skill-Check daneben → Lärm) ·
                                   great · done (Aufgabe fertig) · wig (Zappeln)
@@ -22,6 +23,7 @@ const Sync = (() => {
   const RATE = 1 / 20, DELAY = .1, HDELAY = .07;
   const X = { active: false, host: false, sent: 0, got: 0 };
   let orig = {}, offs = [], acc = 0, evN = 0, evSeen = 0, mute = 0, clock = null, lastSnap = null, bg = null, hidAt = 0;
+  let kId = -1, kfSeen = 0;   // Killer-Spieler: seine Spieler-ID (−1 = KI) und die letzte bestätigte Zwangslage
   const r2 = v => Math.round(v * 100) / 100, r3 = v => Math.round(v * 1000) / 1000;
   const byId = id => SV.find(v => v.id === id) || null;
   const live = () => X.active && MODE === 'team' && state === 'play';
@@ -96,9 +98,9 @@ const Sync = (() => {
     });
     wrap('dropPallet', o => function (p, sv = S) {
       const a0 = K.act; o(p, sv);
-      if (live()) send({ t: 'fx', k: 'pallet', i: pallets.indexOf(p), stun: !!(K.act && K.act !== a0 && K.act.kind === 'stun'), src: srcOf(sv) });
+      if (live()) send({ t: 'fx', k: 'pallet', i: pallets.indexOf(p), stun: !!(K.act && K.act !== a0 && K.act.kind === 'stun'), src: srcOf(sv), kx: r2(K.x), ky: r2(K.y) });
     });
-    wrap('vaultOver', o => function (w, isWin, sv = S) { const fast = sv.running; o(w, isWin, sv); if (live()) send({ t: 'fx', k: 'vault', fast, src: srcOf(sv) }); });
+    wrap('vaultOver', o => function (w, isWin, sv = S) { const fast = sv.running; o(w, isWin, sv); if (live()) send({ t: 'fx', k: 'vault', fast, src: srcOf(sv), x: r2(w.cx), y: r2(w.cy) }); });
     wrap('hide', o => function (L, sv = S) { o(L, sv); if (live()) send({ t: 'fx', k: 'locker', i: lockers.indexOf(L), src: srcOf(sv) }); });
     wrap('unhide', o => function (sv = S) { const L = sv.hidden; o(sv); if (live()) send({ t: 'fx', k: 'locker', i: lockers.indexOf(L), src: srcOf(sv) }); });
     wrap('giveUpChase', o => function (sv) { o(sv); if (live() && sv.kind === 'remote') send({ t: 'fx', k: 'toast', msg: 'Er hat genug von dir – er sucht die anderen!' }, sv.id); });
@@ -109,6 +111,58 @@ const Sync = (() => {
       o();
     });
     offs.push(Net.on('c', onClient), Net.on('e', onEvent), Net.on('leave', onLeave));
+    // Ein Mitspieler steuert den Killer: Position und Aktionen kommen aus seinem Strom
+    if (KP === 'remote') { K.rk = { buf: [], clk: newClock(), st: null, at: -9, lastId: 0, own: null }; K.kf = 0; offs.push(Net.on('k', onKiller)); }
+  }
+  /* ---------- Killer eines Mitspielers (Host) ----------
+     Der Client bestimmt Position und eigene Aktionen (Ausfallschritt, Sprung, Zerbrechen, Aufheben, Aufhängen …), der Host
+     die Folgen (Treffer, Zustandswechsel). Betäubung und Klinge-Abwischen bestimmt der Host: bis der Client sie kennt
+     (Zähler kf im Schnappschuss), zählt sein Strom nicht. */
+  const HOSTRUN = new Set(['break', 'kick', 'locker', 'pick', 'hook']);
+  function onKiller(m, from) {
+    if (!live() || from !== kId || K.human !== 'remote') return;
+    const n = K.rk; X.got++;
+    if (!(m.kf >= K.kf)) return;
+    n.st = m; n.at = T; clockSet(n.clk, m.T);
+    if (isFinite(m.x) && isFinite(m.y)) push(n.buf, m.T, clamp(m.x, 0, W), clamp(m.y, 0, H), +m.d || 0);
+  }
+  function startMirror(kind, st) {
+    const i = st.ai | 0, near = (x, y, r) => hyp(K.x - x, K.y - y) < r;
+    switch (kind) {
+      case 'lunge': hear(K.x, K.y, SFX.whoosh); return { kind, dur: CFG.lungeT };
+      case 'recover': hear(K.x, K.y, SFX.whiff); return { kind, dur: CFG.recover };
+      case 'vault': return { kind, dur: CFG.kVault };
+      case 'break': { const p = pallets[i]; return p && p.state === 1 && near(p.cx, p.cy, 2.6) ? { kind, dur: CFG.kBreak, p } : null; }
+      case 'kick': { const t = tasks[i]; return t && !t.done && (t.stations || [t]).some(s => near(s.cx, s.cy, 2.6)) ? { kind, dur: 1.1, task: t } : null; }
+      case 'locker': { const L = lockers[i]; return L && near(L.cx, L.cy, 2.6) ? { kind, dur: .9, L } : null; }
+      case 'pick': { const sv = byId(i); return sv && isDowned(sv) && near(sv.x, sv.y, 2.6) ? { kind, dur: CFG.pickT, sv } : null; }
+      case 'hook': { const h = hooks[i]; return h && K.carry && !hookBusy(h) && near(h.front.x, h.front.y, 2.6) ? { kind, dur: CFG.hookT, sv: K.carry, h } : null; }
+    }
+    return null;
+  }
+  function hostKiller(dt) {
+    const n = K.rk; if (!n) return;
+    let a = K.act;
+    if (a && (a.kind === 'stun' || a.kind === 'wipe')) {
+      if (n.own !== a) { n.own = a; K.kf++; n.buf.length = 0; n.st = null; }
+      runAct(dt);
+    } else {
+      const st = n.st, fresh = !!st && T - n.at < .6;
+      if (n.clk.t != null) n.clk.t += dt;
+      const ox = K.x, oy = K.y;
+      if (st && sample(n.buf, n.clk.t - HDELAY, tmp)) { K.x = tmp.x; K.y = tmp.y; K.dir = tmp.d; }
+      const md = hyp(K.x - ox, K.y - oy);
+      K.moving = md > .0005; K.walk += md * 4.6; K.z = fresh ? +st.z || 0 : 0;
+      const kind = fresh ? st.a : '', id = fresh ? st.an | 0 : 0;
+      if (a && a.remote && !HOSTRUN.has(a.kind) && (a.rid !== id || !kind)) a = K.act = null;
+      if (!a && kind && id !== n.lastId) { n.lastId = id; a = K.act = startMirror(kind, st); if (a) { a.remote = true; a.rid = id; a.t = 0; } }
+      if (a) {
+        if (HOSTRUN.has(a.kind)) runAct(dt);
+        else { a.t += dt; if (a.kind === 'lunge') lungeHit(.08); if (K.act === a && a.t > a.dur + .8) K.act = null; }
+      }
+      if (K.moving) { K.stepT -= dt; if (K.stepT <= 0) { K.stepT = K.mode === 'chase' ? .28 : .42; if (killerVisible()) hear(K.x, K.y, SFX.kstep); } }
+    }
+    hkAware(dt); hkCarry(dt);
   }
   function remote(sv) {
     sv.bot = null; sv.ctl = remoteCtl;
@@ -117,6 +171,11 @@ const Sync = (() => {
   /* Mitspieler weg: ein Bot übernimmt seine Figur */
   function onLeave(p) {
     if (!live() || !p) return;
+    if (p.id === kId && K.human === 'remote') {   // der Killer-Spieler ist weg: die KI übernimmt
+      K.human = null; KP = null; kId = -1; K.rk = null; K.z = 0; K.act = null; K.path = null; K.goal = null; if (K.mode !== 'carry') { K.mode = 'patrol'; K.target = null; }
+      const msg = 'Der Killer hat das Spiel verlassen – die KI übernimmt'; toast(msg); send({ t: 'fx', k: 'toast', msg });
+      return;
+    }
     const sv = byId(p.id); if (!sv || sv.kind !== 'remote') return;
     if (sv.work) stopWorkFor(sv); sv.heal = null; sv.unhook = null;
     sv.kind = 'bot'; sv.net = null; sv.ctl = null;
@@ -183,7 +242,7 @@ const Sync = (() => {
     const a = K.act, ix = v => v ? SV.indexOf(v) : -1;
     return {
       t: 's', T: r3(T), n: evN,
-      k: [r2(K.x), r2(K.y), r2(K.dir), K.mode, a ? a.kind : '', a ? r2(a.t) : 0, a ? r2(a.dur) : 0, r2(K.z), K.moving ? 1 : 0, ix(K.carry), ix(K.target), r2(K.aware)],
+      k: [r2(K.x), r2(K.y), r2(K.dir), K.mode, a ? a.kind : '', a ? r2(a.t) : 0, a ? r2(a.dur) : 0, r2(K.z), K.moving ? 1 : 0, ix(K.carry), ix(K.target), r2(K.aware), K.kf | 0],
       s: SV.map(v => [r2(v.x), r2(v.y), r2(v.dir), (v.moving ? 1 : 0) | (v.running ? 2 : 0) | (v.carried ? 4 : 0) | (v.burst > 0 ? 8 : 0) | (T - v.healedT < .25 ? 16 : 0) | (v.act ? 32 : 0) | (v.flinch > 0 ? 64 : 0),
         r2(v.z), v.hp, v.hung ? hooks.indexOf(v.hung) : -1, v.out || '', v.hookN, r3(v.hookProg), r2(v.unhookProg), r3(v.healProg), r2(v.wiggle),
         v.work ? tasks.indexOf(v.work) : -1, v.station, v.hidden ? lockers.indexOf(v.hidden) : -1, v.heal ? v.heal.id : -1, v.unhook ? v.unhook.id : -1]),
@@ -201,9 +260,13 @@ const Sync = (() => {
   const quiet = fn => { mute++; try { return fn(); } finally { mute--; } };
 
   function clientOn() {
-    clock = newClock(); lastSnap = null; evSeen = 0; hidAt = 0;
+    clock = newClock(); lastSnap = null; evSeen = 0; hidAt = 0; kfSeen = 0;
     for (const sv of SV) if (sv !== S) { sv.bot = null; sv.ctl = otherCtl; sv.net = { buf: [], hid: null }; }
-    K.net = killerNet; K.nb = [];
+    K.nb = [];
+    if (KP === 'local') {
+      // Ich steuere den Killer selbst (js/hkiller.js); was daraus folgt, entscheidet der Host und schickt es als Zustandswechsel
+      for (const k of ['hitSurvivor', 'downSurv', 'pickUp', 'hookSurv', 'killSurv', 'dropCarried']) wrap(k, () => function () {});
+    } else K.net = killerNet;
     // Der Host entscheidet: lokal kein Team-Ende, kein Killer, keine fremden Zustandswechsel
     wrap('teamCheckEnd', () => function () {});
     wrap('teamStep', () => clientTeamStep);
@@ -260,7 +323,7 @@ const Sync = (() => {
     offs.push(Net.on('s', onSnap), Net.on('v', onState), Net.on('fx', onFx), Net.on('end', onEnd), Net.on('nowork', m => { if (live() && S.work === tasks[m.i]) { stopWork(); toast('Schon besetzt'); } }));
   }
   function palletFx(p) {
-    SFX.pallet();
+    hear(p.cx, p.cy, SFX.pallet);
     for (let i = 0; i < 14; i++) parts.push({ x: p.cx + rand(-.6, .6), y: p.cy + rand(-.3, .3), z: .1, vx: rand(-1, 1), vy: rand(-.5, .5), vz: rand(.5, 2), g: 6, life: rand(.4, .8), max: .8, col: '140,120,95', sz: .05 });
   }
   /* Zustandswechsel vom Host: mit denselben Funktionen nachspielen (Effekte und Hinweise entstehen dabei von selbst) */
@@ -288,9 +351,17 @@ const Sync = (() => {
     switch (m.k) {
       case 'fail': if (!mine && sv) base('fx')('fail', sv, m.o); break;
       case 'stage': if (sv && hooks[m.h]) base('fx')('stage', sv, hooks[m.h]); break;
-      case 'pallet': { const p = pallets[m.i]; if (!p) break; if (!mine) { if (p.state === 0) p.state = 1; palletFx(p); } if (m.stun) { SFX.stun(); shake(mine ? .5 : .3); if (mine) stats.stuns++; } break; }
-      case 'vault': if (!mine) SFX.vault(!!m.fast); break;
-      case 'locker': { const L = lockers[m.i]; if (L) L.anim = 1; if (!mine) SFX.locker(); break; }
+      case 'pallet': {
+        const p = pallets[m.i]; if (!p) break;
+        if (!mine) { if (p.state === 0) p.state = 1; palletFx(p); }
+        if (m.stun) {
+          hear(p.cx, p.cy, () => { SFX.stun(); shake(mine ? .5 : .3); }); if (mine) stats.stuns++;
+          if (KP === 'local') { if (isFinite(m.kx) && isFinite(m.ky)) { K.x = m.kx; K.y = m.ky; } K.z = 0; K.act = { kind: 'stun', t: 0, dur: CFG.stun }; }
+        }
+        break;
+      }
+      case 'vault': if (!mine) { if (isFinite(m.x)) hear(m.x, m.y, () => SFX.vault(!!m.fast)); else SFX.vault(!!m.fast); } break;
+      case 'locker': { const L = lockers[m.i]; if (L) L.anim = 1; if (!mine) { if (L) hear(L.cx, L.cy, SFX.locker); else SFX.locker(); } break; }
       case 'toast': toast(String(m.msg || '').slice(0, 80)); break;
     }
   }
@@ -305,12 +376,20 @@ const Sync = (() => {
     X.got++; lastSnap = m;
     clockSet(clock, m.T);
     const k = m.k, a = K.act;
+    if (KP === 'local') {
+      // Mein Killer: nur Zwangslagen vom Host übernehmen (Betäubung, Klinge abwischen), falls sie noch nicht angekommen sind
+      const kf = k[12] | 0;
+      if (kf > kfSeen) {
+        kfSeen = kf;
+        if ((k[4] === 'stun' || k[4] === 'wipe') && !(a && a.kind === k[4])) { K.act = { kind: k[4], t: k[5], dur: k[6] }; K.z = 0; if (k[4] === 'stun') { K.x = k[0]; K.y = k[1]; } }
+      }
+    } else {
     push(K.nb, m.T, k[0], k[1], k[2]);
-    if (k[3] === 'chase' && K.mode !== 'chase') { SFX.sting(); chaseFlash = 1; }
     K.mode = k[3]; K.moving = !!k[8]; K.carry = SV[k[9]] || null; K.target = SV[k[10]] || null; K.aware = k[11]; K.nz = k[7];
     if (!k[4]) K.act = null;
     else if (!a || a.kind !== k[4] || k[5] < a.t - .3) { K.act = { kind: k[4], t: k[5], dur: k[6], base: K.dir }; killerFx(k[4]); }
     else { a.t = Math.max(a.t, k[5]); a.dur = k[6]; }
+    }
     m.s.forEach((d, i) => {
       const sv = SV[i]; if (!sv) return;
       const f = d[3], me = sv === S;
@@ -354,17 +433,17 @@ const Sync = (() => {
   function remoteDone(t) {
     t.done = true; t.prog = 1; qteSeen.add(t.type);
     for (const v of SV) if (v.work === t) { v.work = null; if (v === S) Q = null; }
-    SFX.done();
+    hear(t.cx, t.cy, SFX.done, .6);
     for (let i = 0; i < 20; i++) parts.push({ x: t.cx, y: t.cy, z: .6, vx: rand(-1.2, 1.2), vy: rand(-1, 1), vz: rand(1, 3), g: 3, life: rand(.5, 1), max: 1, col: '255,225,140', sz: .05 });
   }
   function breakFx(p) {
-    SFX.crack(); shake(.2);
+    hear(p.cx, p.cy, () => { SFX.crack(); shake(.2); });
     for (let i = 0; i < 18; i++) parts.push({ x: p.cx, y: p.cy, z: .2, vx: rand(-2, 2), vy: rand(-1.5, 1.5), vz: rand(1, 3), g: 8, life: rand(.4, .9), max: .9, col: '120,90,55', sz: .06 });
   }
   // Töne zu den Aktionen des Killers (der Host hört sie aus runAct)
   function killerFx(kind) {
-    if (kind === 'lunge') SFX.whoosh(); else if (kind === 'recover') SFX.whiff(); else if (kind === 'kick') setTimeout(() => { if (live()) SFX.kick(); }, 600);
-    else if (kind === 'locker') setTimeout(() => { if (live()) SFX.locker(); }, 400);
+    if (kind === 'lunge') hear(K.x, K.y, SFX.whoosh); else if (kind === 'recover') hear(K.x, K.y, SFX.whiff); else if (kind === 'kick') setTimeout(() => { if (live()) hear(K.x, K.y, SFX.kick); }, 600);
+    else if (kind === 'locker') setTimeout(() => { if (live()) hear(K.x, K.y, SFX.locker); }, 400);
   }
   /* Killer beim Client: nur darstellen */
   function killerNet(dt) {
@@ -374,7 +453,7 @@ const Sync = (() => {
     const md = hyp(K.x - ox, K.y - oy);
     K.walk += md * 4.6; K.z = K.nz || 0;
     if (K.act) K.act.t += dt;
-    if (K.moving) { K.stepT -= dt; if (K.stepT <= 0) { K.stepT = K.mode === 'chase' ? .28 : .42; if (killerVisible()) SFX.kstep(); } }
+    if (K.moving) { K.stepT -= dt; if (K.stepT <= 0) { K.stepT = K.mode === 'chase' ? .28 : .42; if (killerVisible()) hear(K.x, K.y, SFX.kstep); } }
   }
   /* Fremde Survivors beim Client: aus den Schnappschüssen interpolieren */
   function otherCtl(sv, dt) {
@@ -402,12 +481,19 @@ const Sync = (() => {
       w, st: S.station | 0, pr: w >= 0 ? r3(S.work.prog) : 0, h: S.heal ? S.heal.id : -1, u: S.unhook && actHeld ? S.unhook.id : -1 };
   }
 
+  /* Killer-Spieler (Client): eigener Zustand – Position, laufende Aktion (a = Art, an = laufende Nummer, ai = Objekt) */
+  function killerState() {
+    const a = K.act, own = a && a.kind !== 'stun' && a.kind !== 'wipe';
+    return { t: 'k', T: r3(T), kf: kfSeen, x: r2(K.x), y: r2(K.y), d: r2(K.dir), z: r2(K.z), a: own ? a.kind : '', an: own ? a.n | 0 : 0, ai: own && a.ai != null ? a.ai : -1 };
+  }
+
   /* =====================================================================================
      Start / Ende / Takt
      ===================================================================================== */
-  function start() {
+  function start(info) {
     stop();
     if (!Net.active || MODE !== 'team') return;
+    kId = info && info.killer != null ? info.killer : -1;
     X.active = true; X.host = Net.isHost; acc = 0; evN = 0; X.sent = X.got = 0;
     if (X.host) hostOn(); else clientOn();
     bgStart();
@@ -424,7 +510,7 @@ const Sync = (() => {
     if (!live()) return;
     acc += dt; if (acc < RATE) return;
     acc = Math.min(acc - RATE, RATE);
-    if (X.host) send(snapshot()); else { X.sent++; Net.send(clientState()); }
+    if (X.host) send(snapshot()); else { X.sent++; Net.send(KP === 'local' ? killerState() : clientState()); }
   }
   /* Tab im Hintergrund: requestAnimationFrame steht dann still. Online darf vor allem der Host nicht einfrieren –
      ein Worker-Taktgeber (wird im Hintergrund nicht gedrosselt) treibt die Spielschleife weiter (bgFrame in js/main.js). */
@@ -441,5 +527,5 @@ const Sync = (() => {
 
   Net.onGameStart(start);
   Net.onGameEnd(stop);
-  return Object.assign(X, { start, stop, tick, snapshot, get lastSnap() { return lastSnap; } });
+  return Object.assign(X, { start, stop, tick, snapshot, hostKiller, get lastSnap() { return lastSnap; } });
 })();

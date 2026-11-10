@@ -1,7 +1,7 @@
 // Bot-Simulation: 3 Bots allein gegen die Killer-KI, mehrere Partien je Karte, fester Zufall je Partie.
 //   NODE_PATH="$(npm root -g)" node tools/botsim.js [--maps schule-team,ferienlager,krankenhaus] [--n 30] [--seed 1] [--strict] [--log]
 // Die Werte streuen stark (±10 Punkte Fluchtquote bei 30 Partien): zum Abstimmen mehrere --seed vergleichen.
-// Ziel: Fluchtquote 30–60 %, Dauer 4–9 min, Duo-Aufgabe meist erledigt, kein Hängenbleiben.
+// Ziel: Fluchtquote 15–50 %, Dauer 5–10 min, Duo-Aufgabe meist erledigt, kein Hängenbleiben.
 // Exit-Code 1 bei Browser-Fehlern, Partien ohne Ende oder festhängenden Bots; mit --strict auch, wenn die Zielwerte verfehlt werden.
 const { chromium } = require('playwright');
 const path = require('path');
@@ -10,6 +10,8 @@ for (let i = 0; i < args.length; i++) if (args[i].startsWith('--')) { const k = 
 const MAPS = (opt.maps || 'schule-team,ferienlager,krankenhaus').split(','), NGAMES = +(opt.n || 30), SEED = +(opt.seed || 1);
 // --cfg noise=2,stun=.4  überschreibt Stellschrauben aus Bots.cfg (zum Abstimmen)
 const CFG = {}; if (typeof opt.cfg === 'string') for (const kv of opt.cfg.split(',')) { const [k, v] = kv.split('='); CFG[k] = v.includes(':') ? v.split(':').map(Number) : +v; }
+// --game tGen=18,loopDrop=40  überschreibt Stellschrauben des Spiels (CFG in js/core.js); --need 7 die nötigen Punkte
+const GAME = {}; if (typeof opt.game === 'string') for (const kv of opt.game.split(',')) { const [k, v] = kv.split('='); GAME[k] = v.includes(':') ? v.split(':').map(Number) : +v; }
 const FILE = path.resolve(opt.file || path.join(__dirname, '..', 'index.html'));
 
 async function runMap(browser, map) {
@@ -25,10 +27,11 @@ async function runMap(browser, map) {
   await p.goto('file://' + FILE + '#test');
   const games = [];
   for (let g = 0; g < NGAMES; g++) {
-    const r = await p.evaluate(([map, seed, cfg]) => {
+    const r = await p.evaluate(([map, seed, cfg, game, need]) => {
       const n = window.__ns; window.__seed(seed);
-      n.Bots.on = true; n.Bots.override = cfg;
+      n.Bots.on = true; n.Bots.override = cfg; Object.assign(CFG, game);
       n.startTeam(map, [{ kind: 'bot' }, { kind: 'bot' }, { kind: 'bot' }]);
+      if (need) NEED = need;
       const t0 = n.T, log = [], pos = n.SV.map(v => ({ x: v.x, y: v.y, t: 0 }));
       let tt = 0, last = '', hits = 0, hp = n.SV.map(v => v.hp), stuck = 0, hooks = 0, hk = n.SV.map(v => v.hookN), chaseT = 0;
       while (n.state === 'play' && tt < 1200) {
@@ -48,7 +51,7 @@ async function runMap(browser, map) {
       const duo = n.tasks.find(t => t.type === 'duo');
       return { ended: n.state === 'end', dur: n.T - t0, esc: n.SV.filter(v => v.out === 'escaped').length, pts: n.taskPoints(), need: n.need, duo: !!(duo && duo.done),
         hits, hooks, stuck, chaseT, nudges: n.SV.reduce((s, v) => s + (v.bot ? v.bot.stuckN : 0), 0), log: log.join(' · ') };
-    }, [map, SEED * 1000 + g * 7919 + map.length, CFG]);
+    }, [map, SEED * 1000 + g * 7919 + map.length, CFG, GAME, +opt.need || 0]);
     games.push(r);
     const mm = s => Math.floor(s / 60) + ':' + String(Math.round(s % 60)).padStart(2, '0');
     console.log(`  ${map} #${g + 1}: ${r.esc}/3 entkommen, ${mm(r.dur)} min, ${r.pts}/${r.need} P, Duo ${r.duo ? 'ja' : 'nein'}, ${r.hits} Treffer, ${r.hooks} Haken, Jagd ${Math.round(r.chaseT)}s${r.stuck ? ', FEST ' + r.stuck : ''}${r.ended ? '' : '  !! KEIN ENDE'}`);
@@ -67,7 +70,7 @@ async function runMap(browser, map) {
   for (const { map, games, errs } of res) {
     const n = games.length, esc = games.reduce((s, g) => s + g.esc, 0) / (3 * n), ds = games.map(g => g.dur / 60).sort((a, b) => a - b);
     const avg = ds.reduce((s, d) => s + d, 0) / n, duo = games.filter(g => g.duo).length, open = games.filter(g => g.pts >= g.need).length, stuck = games.reduce((s, g) => s + g.stuck, 0);
-    const okE = esc >= .3 && esc <= .6, okD = avg >= 4 && avg <= 9, okU = duo >= n / 2;
+    const okE = esc >= .15 && esc <= .5, okD = avg >= 5 && avg <= 10, okU = duo >= n / 2;
     console.log(`${map.padEnd(15)} ${(Math.round(esc * 100) + ' %').padEnd(6)}${okE ? '  ' : ' !'} ⌀ ${avg.toFixed(1)} (${ds[0].toFixed(1)}–${ds[n - 1].toFixed(1)})${okD ? '  ' : ' !'}  ${duo}/${n}${okU ? '  ' : ' !'}  ${open}/${n}        ${stuck}`);
     if (errs.length) { bad = true; console.log('  Browser-Fehler:', [...new Set(errs)].slice(0, 5)); }
     if (stuck || games.some(g => !g.ended)) bad = true;

@@ -219,3 +219,13 @@ body{color:var(--chalk);font-family:var(--f-type);-webkit-user-select:none;user-
 #team.kb-name .sub,#team.kb-name .acts,#team.kb-name .skins,#team.kb-name .who>div.lbl,
 #team.kb-code .sub,#team.kb-code .who,#team.kb-code .acts>:not(.joinrow){display:none}
 @media (prefers-reduced-motion: reduce){.slot.new,#notice{animation:none}.nmsg.busy::after,.wait::after{animation:none;content:'…'}}
+/* Killer-Rolle: Knopf im Team-Menü, Platz und Rollenwechsel im Raum */
+.pill.red{background:rgba(195,18,31,.82);border-color:#c3121f;color:#fff}
+.pill.red:hover:not(:disabled){background:#d21a28;border-color:#ff6b6b}
+.pill.small{font-size:13px;padding:7px 14px;min-height:34px;align-self:center}
+.slot.kil{margin-top:clamp(5px,1.2vh,8px);border-color:rgba(195,18,31,.55);background:rgba(195,18,31,.08)}
+.slot.kil.bot{border-style:dashed;border-color:rgba(195,18,31,.35);background:none}
+.slot.kil.me{border-color:#c3121f;background:rgba(195,18,31,.16)}
+.slot .kico{flex:none;display:grid;place-items:center;width:clamp(34px,10.5vh,48px);height:clamp(34px,10.5vh,48px);border-radius:50%;background:rgba(195,18,31,.2)}
+.slot .kico svg{width:58%;height:58%;fill:none;stroke:#ff5a5a;stroke-width:2.2;stroke-linecap:round}
+.slot.kil small{color:#ff8a8a}

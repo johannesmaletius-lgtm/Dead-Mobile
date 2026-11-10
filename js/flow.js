@@ -5,13 +5,13 @@ function hitSurvivor(sv = S) {
   if (state !== 'play') return;
   if (sv.hp <= 1 && !TUT) { if (MODE === 'team') downSurv(sv); else caught(sv); return; }
   const wasHurt = sv.hp <= 1;
-  if (MODE === 'team') { clearInteract(sv); K.hunt.t = 0; }
+  if (MODE === 'team') { clearInteract(sv); K.hunt.t = 0; K.loop.t = 0; K.kstats.hits++; }
   if (sv.hidden) { sv.x = sv.hidden.front.x; sv.y = sv.hidden.front.y; sv.hidden.known = false; sv.hidden = null; }
   if (sv.work) { if (sv === S) stopWork(); else sv.work = null; }
   if (sv.act && sv.act.kind !== 'vault') { sv.act = null; sv.z = 0; resolve(sv); }
   sv.hp = 1; sv.burst = CFG.burstT; sv.flinch = .3;
   K.act = { kind: 'wipe', t: 0, dur: CFG.wipe }; K.seenT = T; K.lastSeen = { x: sv.x, y: sv.y }; K.blood = 0; K.chaseT = 0;
-  SFX.hit(); SFX.gasp();
+  hear(sv.x, sv.y, () => { SFX.hit(); SFX.gasp(); });
   if (sv === S) { flash = .75; flashCol = '195,18,31'; shake(.55); slowT = .12; } else shake(.2);
   for (let i = 0; i < 22; i++) parts.push({ x: sv.x, y: sv.y, z: .7, vx: rand(-2.5, 2.5), vy: rand(-1.5, 1.5), vz: rand(.5, 3), g: 9, life: rand(.5, 1), max: 1, col: '150,10,18', sz: .06, splat: 1 });
   if (TUT) { TUT.flag.hit = true; if (wasHurt) toast('Autsch! Im echten Spiel wärst du jetzt am Haken.'); }
@@ -88,6 +88,7 @@ function step(dt) {
   if (slowT > 0) { slowT -= dt; dt *= .3; }
   T += dt;
   if (state === 'play' && K && K.mode === 'chase' && (MODE !== 'team' || K.target === S)) stats.chase += dt;
+  if (MODE === 'team' && state === 'play') chaseCue();
   if (state === 'play') {
     updateSurv(dt);
     if (SV.length > 1) for (const sv of SV) if (sv !== S) updateOther(sv, dt);
@@ -137,7 +138,8 @@ function updateCamera(dt) {
     const V = viewer();
     tx = V.x; ty = V.y - .4;
     if (V.work || (V === S && S.heal)) { const portrait = VH > VW; ty += portrait ? 2.2 : 1.6; }
-    if (K.mode === 'chase' && state === 'play') tz = .9;
+    if (MODE !== 'team') { if (K.mode === 'chase' && state === 'play') tz = .9; }
+    else if (state === 'play' && chasedView() && !V.out) tz = KP === 'local' ? 1.06 : CFG.chaseZoom;   // Team: wer gejagt wird, sieht näher ran
     if (MODE === 'team' && state === 'play') { if (V.hung) { ty -= 1.6; tz = 1.25; } else if (V.hp <= 0 && !V.out) tz = 1.12; }
   }
   const k = 1 - Math.exp(-dt * (state === 'caught' ? 3 : 6));
@@ -148,9 +150,16 @@ function updateCamera(dt) {
     cam.y = hh * 2 > H ? H / 2 : clamp(cam.y, hh - 1, H - hh + .5);
   }
 }
+/* Team: Stich und roter Blitz nur für den, der ab jetzt gejagt wird (nicht für das ganze Team) */
+let cuePrev = false;
+function chaseCue() {
+  const now = chasedView();
+  if (now && !cuePrev) { SFX.sting(); chaseFlash = 1; }
+  cuePrev = now;
+}
 function updateHeart(dt) {
   const V = viewer();
-  if (state === 'play' && V && !V.ghost) {
+  if (state === 'play' && V && !V.ghost && V !== K) {
     const d = hyp(V.x - K.x, V.y - K.y);
     terror = clamp(1 - (d - 2) / 12, 0, 1);
     if (terror > 0 && T >= hbNext) { SFX.heart(.25 + .75 * terror); hbPulse = 1; hbNext = T + lerp(1.15, .42, terror); }
