@@ -34,7 +34,7 @@ const CFG = {
   loopDrop: 40, ignoreT: 20, ignoreNear: 2, antiCamp: 12, duoTime: 20, botSkill: .85,
   kickDmg: .15,
   // Gespielter Killer (js/kplayer.js)
-  kpSpeed: 4.4, kpWalk: .55, kpTurn: 2.6, kpAssist: .75, kpAssistR: 3.4, instR: 15, instCd: 28, instShow: 3.2, hearShow: 4,
+  kpSpeed: 4.4, kpRoam: 4.4, kpWalk: .55, kpTurn: 2.6, kpAssist: .75, kpAssistR: 3.4, instR: 15, instCd: 28, instShow: 3.2, hearShow: 4,
   campR: 5.5, campSlow: .45,
   // Endspiel (Team): so lange bleiben die Tore offen, danach holt es alle, die noch drin sind
   collapse: 150,

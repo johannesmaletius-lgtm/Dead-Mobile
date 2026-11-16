@@ -266,7 +266,7 @@ const Lobby = (() => {
   Net.on('peers', () => { if (Net.isHost && roomKiller >= 0 && !killerPeer()) { roomKiller = -1; sendLobby(); } renderRoom(); });
   Net.on('join', p => sendLobby(p.id));
   Net.on('leave', p => { if (inNetGame() && state !== 'title') toast(shown(p) + ' hat das Spiel verlassen'); });
-  Net.on('lobby', m => { if (!Net.isHost && MAPS[m.map]) { roomMap = m.map; roomKiller = m.killer >= 0 ? m.killer | 0 : -1; renderRoom(); } });
+  Net.on('lobby', m => { if (Net.isHost) return; if (MAPS[m.map]) roomMap = m.map; roomKiller = m.killer >= 0 ? m.killer | 0 : -1; renderRoom(); });
   Net.on('start', m => { if (!Net.isHost) begin(m); });
   Net.on('back', () => { if (Net.isHost) return; if (view === 'room') Net.gameEnded('back'); else if (net) toRoom(); });
   Net.on('close', (why, txt) => {

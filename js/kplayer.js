@@ -55,7 +55,8 @@ function killerPlayer(dt, noSense) {
   else {
     everMoved = true;
     const slow = inp.walk || inp.mag <= .62;
-    const spd = (K.carry ? CFG.carryV : CFG.kpSpeed * (1 + .035 * K.blood)) * (slow ? CFG.kpWalk : 1), ox = K.x, oy = K.y;
+    // volles Tempo nur in der Jagd (mit Blutrausch); beim Suchen etwas langsamer, beim Tragen wie die KI
+    const spd = (K.carry ? CFG.carryV : K.mode === 'chase' ? CFG.kpSpeed * (1 + .035 * K.blood) : CFG.kpRoam) * (slow ? CFG.kpWalk : 1), ox = K.x, oy = K.y;
     K.dir = Math.atan2(inp.y, inp.x);
     moveEnt(K, Math.cos(K.dir) * spd * dt, Math.sin(K.dir) * spd * dt);
     const md = hyp(K.x - ox, K.y - oy); K.moving = md > .0005; K.walk += md * 4.6;
@@ -75,14 +76,17 @@ function killerRemote(dt) {
 const K_ALT_TXT = { pick: 'Aufheben', break: 'Zerbrechen', kvault: 'Fenster', search: 'Durchsuchen', kick: 'Treten' };
 function kActions() {
   if (state !== 'play' || K.act) return { main: null, alt: null };
-  if (K.carry) {
+  // Beim Tragen: Hauptknopf hängt auf; Fenster und Paletten gehen weiter (wie bei der KI), sonst nichts
+  let main = { kind: 'attack' };
+  const carry = !!K.carry;
+  if (carry) {
     let h = null, bd = 1.3;
     for (const o of hooks) { if (hookBusy(o)) continue; const d = hyp(K.x - o.front.x, K.y - o.front.y); if (d < bd) { bd = d; h = o; } }
-    return { main: h ? { kind: 'hook', o: h } : { kind: 'carry', off: true }, alt: null };
+    main = h ? { kind: 'hook', o: h } : { kind: 'carry', off: true };
   }
   let alt = null, bs = 1e9;
   const take = (kind, o, sc) => { if (sc < bs) { bs = sc; alt = { kind, o }; } };
-  for (const v of SV) if (isDowned(v)) { const d = hyp(v.x - K.x, v.y - K.y); if (d < 1.2) take('pick', v, d - 3); }
+  if (!carry) for (const v of SV) if (isDowned(v)) { const d = hyp(v.x - K.x, v.y - K.y); if (d < 1.2) take('pick', v, d - 3); }
   for (const p of pallets) {
     if (p.state !== 1) continue;
     const dx = K.x - p.cx, dy = K.y - p.cy; if (dx * dx + dy * dy > 4) continue;
@@ -94,12 +98,13 @@ function kActions() {
     const al = Math.abs(dx * w.ax.x + dy * w.ax.y), lat = Math.abs(dx * w.ax.y - dy * w.ax.x);
     if (lat < .5 && al > .35 && al < 1.4) take('kvault', w, al - .5);
   }
+  if (carry) return { main, alt };
   for (const L of lockers) { const d = hyp(K.x - L.front.x, K.y - L.front.y); if (d < .85) take('search', L, d); }
   for (const t of tasks) {
     if (t.done || t.prog <= .05 || isWorked(t)) continue;
     for (const s of t.stations || [t]) { const d = hyp(K.x - s.cx, K.y - s.cy); if (d < 1.4) take('kick', t, d + .1); }
   }
-  return { main: { kind: 'attack' }, alt };
+  return { main, alt };
 }
 /* Knopf gedrückt: which = 'main' | 'alt' */
 function kDo(which) {
@@ -179,8 +184,11 @@ function killerHUD(edge) {
     else if (sv.hp <= 0 && !sv.carried) edge(sv.x, sv.y - .3, `rgba(255,150,60,${.75 + .25 * Math.sin(T * 7)})`, 'down');
   }
   if (K.carry) {
-    const hs = hooks.filter(h => !hookBusy(h)).sort((a, b) => hyp(a.cx - K.x, a.cy - K.y) - hyp(b.cx - K.x, b.cy - K.y)).slice(0, 2);
-    hs.forEach((h, i) => edge(h.cx + .3, h.cy - .8, i ? 'rgba(235,231,220,.55)' : 'rgba(235,231,220,.95)', 'hook'));
+    // heller Pfeil: der Haken mit dem kürzesten Weg (K.hookGoal, beim Aufheben berechnet); blass: der nächste andere
+    if (!K.hookGoal || hookBusy(K.hookGoal)) K.hookGoal = nearestFreeHook();
+    const g = K.hookGoal, o = hooks.filter(h => h !== g && !hookBusy(h)).sort((a, b) => hyp(a.cx - K.x, a.cy - K.y) - hyp(b.cx - K.x, b.cy - K.y))[0];
+    if (o) edge(o.cx + .3, o.cy - .8, 'rgba(235,231,220,.45)', 'hook');
+    if (g) edge(g.cx + .3, g.cy - .8, `rgba(255,235,200,${.8 + .2 * Math.sin(T * 6)})`, 'hook');
   }
   for (const n of K.heard) { const a = 1 - (T - n.t) / CFG.hearShow; if (a > 0) edge(n.x, n.y, n.loud ? `rgba(255,70,50,${.4 + .6 * a})` : `rgba(255,220,200,${.25 + .5 * a})`, 'noise'); }
   if (K.inst && T - K.instT < CFG.instShow) for (const r of K.inst) edge(r.x, r.y - .5, 'rgba(255,60,60,.95)', 'eye');

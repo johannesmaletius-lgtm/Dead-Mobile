@@ -28,7 +28,7 @@ function drawOverlays(z, ox, oy) {
   if (state === 'play' && toastMsg && ta < 2.6) {
     const a = Math.min(1, ta / .15, (2.6 - ta) / .4);
     ctx.save(); ctx.globalAlpha = a; ctx.font = '16px "Special Elite", "Courier New", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const w = Math.min(VW - 32, ctx.measureText(toastMsg).width + 32), y = VH / 2 + 70;
+    const w = Math.min(VW - 32, ctx.measureText(toastMsg).width + 32), y = Math.min(VH / 2 + 70, VH - SAB - 200);   // nicht über den Knöpfen
     ctx.fillStyle = 'rgba(6,7,12,.82)'; rrp(ctx, VW / 2 - w / 2, y - 20, w, 40, 20); ctx.fill();
     ctx.strokeStyle = 'rgba(242,193,75,.6)'; ctx.lineWidth = 1.5; ctx.stroke();
     ctx.fillStyle = '#ebe7dc'; ctx.fillText(toastMsg, VW / 2, y + 1, VW - 48); ctx.restore();

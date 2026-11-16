@@ -1,7 +1,7 @@
 // Gespielter Killer testen: Szenarien per Test-API (PASS/FAIL) und ein Autopilot, der den Killer wie ein Mensch über
 // die Eingabe steuert (Joystick, Angriff, Aktion, Instinkt) und ganze Partien gegen die Bots spielt.
 //   node tools/killertest.js [bildordner]                       Szenarien auf schule-team
-//   node tools/killertest.js --sim 10 [--maps a,b] [--seed 1]   Autopilot: Statistik je Karte (Opfer, Dauer, Hänger)
+//   node tools/killertest.js --sim 10 [--maps a,b] [--seed 1] [--cfg vault=.55]   Autopilot: Statistik je Karte (Opfer, Dauer, Hänger)
 // Playwright: NODE_PATH="$(npm root -g)" voranstellen. Fester Zufall, kein Ton, keine rAF-Schleife.
 const { chromium } = require('playwright');
 const fs = require('fs'), path = require('path');
@@ -10,6 +10,8 @@ for (let i = 0; i < args.length; i++) { if (args[i].startsWith('--')) { const k 
 if (dir) fs.mkdirSync(dir, { recursive: true });
 const FILE = path.resolve(opt.file || path.join(__dirname, '..', 'index.html'));
 
+// --cfg vault=.55,win=.5  überschreibt Stellschrauben der Bots (Bots.cfg) für die Autopilot-Partien
+const BCFG = {}; if (typeof opt.cfg === 'string') for (const kv of opt.cfg.split(',')) { const [k, v] = kv.split('='); BCFG[k] = v.includes(':') ? v.split(':').map(Number) : +v; }
 /* Läuft im Browser: Hilfen und Autopilot */
 function inPage() {
   const n = window.__ns;
@@ -27,7 +29,7 @@ function inPage() {
     /* ---------- Autopilot: nutzt nur, was ein Mensch auch sieht (Sicht im Raum, Lärm, Instinkt, Pfeile) ---------- */
     pilot: {
       path: null, pi: 0, rp: 0, goalKey: '', last: null, inv: null, wander: null, px: 0, py: 0, stillT: 0, nudge: null, kicked: new Map(),
-      reset() { Object.assign(this, { path: null, pi: 0, rp: 0, goalKey: '', last: null, inv: null, wander: null, stillT: 0, nudge: null }); this.kicked.clear(); stop(); },
+      reset() { Object.assign(this, { path: null, pi: 0, rp: 0, goalKey: '', last: null, inv: null, wander: null, stillT: 0, nudge: null, trailT: 0 }); this.kicked.clear(); stop(); },
       nav(x, y) {
         if (this.nudge && T < this.nudge.t) { setJoy(this.nudge.x - K.x, this.nudge.y - K.y); return; }
         if (lineWalk(K.x, K.y, x, y, K.r)) { this.path = null; setJoy(x - K.x, y - K.y); return; }
@@ -56,7 +58,8 @@ function inPage() {
         const acts = kActions(), d2 = o => Math.hypot(o.x - K.x, o.y - K.y);
         if (K.carry) {
           if (acts.main && acts.main.kind === 'hook') { stop(); kDo('main'); return; }
-          const h = hooks.filter(h => !hookBusy(h)).sort((a, b) => d2(a.front) - d2(b.front))[0]; if (h) this.nav(h.front.x, h.front.y); return;
+          // der Haken mit dem kürzesten Weg (heller Pfeil im HUD), sonst der nächste freie
+          const h = K.hookGoal && !hookBusy(K.hookGoal) ? K.hookGoal : hooks.filter(h => !hookBusy(h)).sort((a, b) => d2(a.front) - d2(b.front))[0]; if (h) this.nav(h.front.x, h.front.y); return;
         }
         const dn = SV.filter(isDowned).sort((a, b) => d2(a) - d2(b))[0];
         this.tg = null;
@@ -67,6 +70,9 @@ function inPage() {
         if (dn) { if (acts.alt && acts.alt.kind === 'pick') { stop(); kDo('alt'); return; } this.nav(dn.x, dn.y); return; }
         if (tg) { this.last = { x: tg.x, y: tg.y, t: T }; this.nav(tg.x, tg.y); return; }
         if (this.last && T - this.last.t < 5) { if (d2(this.last) < .8) this.last = null; else { this.nav(this.last.x, this.last.y); return; } }
+        // frischen Kratzspuren folgen (sie leuchten für den Killer): immer zur neuesten in Sichtweite, die er noch nicht abgelaufen hat
+        { let mk = null; for (let i = marks.length - 1; i >= 0; i--) { const m = marks[i]; if (m.t <= (this.trailT || 0) || T - m.t > CFG.markLife) break; if (d2(m) < 10) { mk = m; break; } }
+          if (mk) { if (d2(mk) < .7) this.trailT = mk.t; else { this.nav(mk.x, mk.y); return; } } }
         const hn = K.heard.filter(h => T - h.t < 3).pop(); if (hn) this.inv = { x: hn.x, y: hn.y, t: T };
         if (K.instCd <= 0 && kInstinct() && K.inst.length) { const r = K.inst.slice().sort((a, b) => d2(a) - d2(b))[0]; this.inv = { x: r.x, y: r.y, t: T }; }
         if (this.inv && T - this.inv.t < 10) { if (d2(this.inv) < 1) this.inv = null; else { this.nav(this.inv.x, this.inv.y); return; } }
@@ -80,8 +86,8 @@ function inPage() {
       },
     },
     /* Ganze Partie mit Autopilot (ohne Zeichnen) */
-    game(map, seed, max = 1200) {
-      window.__seed(seed);
+    game(map, seed, max = 1200, cfg) {
+      window.__seed(seed); n.Bots.override = cfg || null; Object.assign(CFG, window.__kcfg || {});
       this.fresh(map, true); this.pilot.reset(); this.pilot.stuck = 0;
       const t0 = T; let fr = 0, last = '', log = [];
       while (state === 'play' && T - t0 < max) {
@@ -108,6 +114,8 @@ function inPage() {
   });
   await p.goto('file://' + FILE + '#test');
   await p.evaluate(inPage);
+  // --kcfg kpRoam=4,instCd=24  überschreibt Stellschrauben aus CFG (zum Abstimmen)
+  if (typeof opt.kcfg === 'string') await p.evaluate(s => { window.__kcfg = {}; for (const kv of s.split(',')) { const [k, v] = kv.split('='); window.__kcfg[k] = +v; } Object.assign(CFG, window.__kcfg); }, opt.kcfg);
 
   /* ---------- Autopilot-Statistik ---------- */
   if (opt.sim) {
@@ -116,7 +124,7 @@ function inPage() {
     for (const map of maps) {
       const gs = [];
       for (let g = 0; g < N; g++) {
-        const r = await p.evaluate(([map, sd]) => window.__k.game(map, sd), [map, seed * 1000 + g * 7919 + map.length]);
+        const r = await p.evaluate(([map, sd, cfg]) => window.__k.game(map, sd, 1200, cfg), [map, seed * 1000 + g * 7919 + map.length, BCFG]);
         gs.push(r);
         console.log(`  ${map} #${g + 1}: ${r.kills} Opfer, ${r.esc} entkommen, ${Math.floor(r.dur / 60)}:${String(Math.round(r.dur % 60)).padStart(2, '0')} min, ${r.pts}/${r.need} P, ${r.hits} Treffer, ${r.hooks} Haken, ${r.stuns}× betäubt${r.stuck > 6 ? ', Hänger ' + r.stuck : ''}${r.ended ? '' : '  !! KEIN ENDE'}`);
         if (opt.log || !r.ended) console.log('     ' + r.log);

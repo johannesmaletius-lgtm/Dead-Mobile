@@ -116,10 +116,9 @@ function drawGlows(visM) {
     const g = gx.createRadialGradient(beam.x, beam.y, .2, beam.x, beam.y, beam.R);
     g.addColorStop(0, beam.kp ? 'rgba(255,70,55,.12)' : 'rgba(255,222,165,.24)'); g.addColorStop(.6, beam.kp ? 'rgba(255,50,40,.06)' : 'rgba(255,214,150,.11)'); g.addColorStop(1, 'rgba(255,200,140,0)');
     gx.fillStyle = g; gx.fill(beam.path); gx.restore();
-    const tf = ctx.getTransform();
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.imageSmoothingEnabled = true;
     ctx.drawImage(gcv, 0, 0, gcv.width, gcv.height, 0, 0, gcv.width / LS, gcv.height / LS);
-    ctx.setTransform(tf);
+    ctx.setTransform(DPR * lightTf.z, 0, 0, DPR * lightTf.z, DPR * lightTf.ox, DPR * lightTf.oy);
     ctx.save();
     if (!beam.kp && !REDUCED) {
       const V0 = viewer();
