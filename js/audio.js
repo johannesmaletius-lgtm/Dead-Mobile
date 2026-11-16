@@ -2,7 +2,7 @@
 /* Dead Mobile – Audio: Web-Audio-Synth, Soundeffekte (SFX), Verfolgungsmusik */
 /* ================= Audio (Web Audio, alles synthetisch) ================= */
 const A = {
-  c: null, m: null, sfx: null, mus: null, nb: null, on: true,
+  c: null, m: null, sfx: null, mus: null, nb: null, rain: null, on: true,
   init() {
     if (this.c) { if (this.c.state !== 'running') this.c.resume(); return; }
     try {
@@ -19,6 +19,10 @@ const A = {
       const src = c.createBufferSource(); src.buffer = b; src.loop = true;
       const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 360;
       const g = c.createGain(); g.gain.value = .045; src.connect(f); f.connect(g); g.connect(this.m); src.start();
+      // Regen (nur auf Karten mit Regen; draußen lauter – updateMusic stellt die Lautstärke)
+      const rs = c.createBufferSource(); rs.buffer = b; rs.loop = true;
+      const rf = c.createBiquadFilter(); rf.type = 'highpass'; rf.frequency.value = 2400;
+      this.rain = c.createGain(); this.rain.gain.value = 0; rs.connect(rf); rf.connect(this.rain); this.rain.connect(this.m); rs.start(0, .7);
       const lfo = c.createOscillator(); lfo.frequency.value = .07; const lg = c.createGain(); lg.gain.value = 160; lfo.connect(lg); lg.connect(f.frequency); lfo.start();
       if (c.state !== 'running') c.resume();
     } catch (e) { this.c = null; }
@@ -71,13 +75,16 @@ const SFX = {
   whiff() { A.noise(.18, .25, 'bandpass', 700, 300, 1); },
   win() { A.tone('triangle', 392, 392, .6, .12); A.tone('triangle', 494, 494, .6, .1, .15); A.tone('triangle', 587, 587, 1.2, .12, .3); },
   gasp() { A.noise(.35, .35, 'bandpass', 1300, 700, 3); A.tone('sawtooth', 420, 300, .3, .05); },
+  thunder(v = .6) { A.noise(2.6, .55 * v, 'lowpass', 260, 45, .7); A.noise(.5, .35 * v, 'bandpass', 900, 200, 1); A.tone('sine', 58, 26, 2.2, .7 * v); },
   breath() { A.noise(.45, .06, 'bandpass', 900, 600, 2); A.noise(.4, .05, 'bandpass', 700, 500, 2, .55); },
 };
 const MUS = { next: 0, beat: 0, lvl: 0 };
 function updateMusic() {
   if (!A.c) return;
   const now = A.c.currentTime;
-  const want = (state === 'play' && K.mode === 'chase') ? 1 : 0;
+  if (A.rain) { const v = viewer(), out = v && (v.mask & OUTMASK) !== 0; A.rain.gain.setTargetAtTime(WEATHER !== 'rain' || state === 'paused' ? 0 : state === 'play' && !out ? .012 : .034, now, .4); }
+  // Jagdmusik: voll für den Gejagten (und den Killer-Spieler), für die anderen im Team nur leise in seiner Nähe
+  const want = !(state === 'play' && K.mode === 'chase') ? 0 : (MODE !== 'team' || ROLE === 'killer' || K.target === viewer()) ? 1 : clamp(terror * .9, 0, .55);
   A.mus.gain.setTargetAtTime(want * .5, now, want ? .25 : 1.2);
   MUS.lvl = want ? 1 : Math.max(0, MUS.lvl - 1 / 60 / 3);
   if (MUS.lvl > 0) {

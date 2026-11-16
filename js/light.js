@@ -3,6 +3,49 @@
 /* ---- Licht ---- */
 function lg(c, x, y, r, a) { const g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(0,0,0,${a})`); g.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = g; c.fillRect(x - r, y - r, r * 2, r * 2); }
 function flick(L) { if (!L.fl) return 1; const n = Math.sin(T * 13 + L.x) * Math.sin(T * 7.3 + L.y * 2); return n > 1 - L.fl * 1.4 ? .25 : 1; }
+/* Lichtkegel mit Schatten: Strahlen bis zum ersten hohen Hindernis (Wand, Regal, Spind …); Fenster lassen Licht durch.
+   Liefert ein Path2D in Weltkoordinaten (Spitze bei x, y). */
+function rayHit(x, y, dx, dy, R) {
+  let tx = Math.floor(x), ty = Math.floor(y), t = 0;
+  const sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1, ddx = dx ? Math.abs(1 / dx) : 1e9, ddy = dy ? Math.abs(1 / dy) : 1e9;
+  let mx = (dx > 0 ? tx + 1 - x : x - tx) * ddx, my = (dy > 0 ? ty + 1 - y : y - ty) * ddy;
+  while (t < R) {
+    if (mx < my) { t = mx; mx += ddx; tx += sx; } else { t = my; my += ddy; ty += sy; }
+    const c = ch(tx, ty);
+    if (TALL.has(c) && !(c === 'E' && gateAt[I(tx, ty)] && gateAt[I(tx, ty)].open >= 1)) return Math.min(R, t + .55);   // ein Stück in die Wand: ihre Front wird hell
+  }
+  return R;
+}
+function conePath(x, y, dir, half, R, n = 56) {
+  const p = new Path2D(); p.moveTo(x, y);
+  for (let i = 0; i <= n; i++) {
+    const a = dir - half + 2 * half * i / n, dx = Math.cos(a), dy = Math.sin(a), t = rayHit(x, y, dx, dy, R);
+    p.lineTo(x + dx * t, y + dy * t);
+  }
+  p.closePath(); return p;
+}
+/* Farbiges Licht in Viertelauflösung (weiche Kanten), wird additiv aufs Bild gelegt */
+const gcv = document.createElement('canvas'), gx = gcv.getContext('2d');
+let lightTf = null;
+/* Wer leuchtet wie: Überlebende haben eine Taschenlampe, der Killer-Spieler einen breiten, rötlichen Blick */
+let beam = null;
+function viewBeam(V) {
+  beam = null;
+  if (state !== 'play' || !V || V.hidden) return;
+  const kp = ROLE === 'killer';
+  if (!kp && MODE === 'team' && !(V.hp > 0 && !V.carried && !V.hung && !V.out)) return;   // nur aufrecht
+  const R = kp ? 9.5 : 8, half = kp ? .78 : .52;
+  beam = { x: V.x, y: V.y - .12, R, kp, path: conePath(V.x, V.y - .12, V.dir, half, R) };
+}
+/* Gewitter (Karten mit weather 'rain'): Blitze nach festem Zeitplan (kein Math.random – das Spiel bleibt reproduzierbar) */
+let boltK = -1;
+function lightning() {
+  if (WEATHER !== 'rain' || REDUCED) return 0;
+  const k = Math.floor(T / 29), at = k * 29 + 5 + hash(k, 71) * 18, d = T - at;
+  if (d < 0 || d > .9) return 0;
+  if (boltK !== k && d > .25) { boltK = k; if (state !== 'paused') SFX.thunder(.35 + hash(k, 5) * .5); }
+  return d < .09 ? 1 : d < .16 ? .15 : d < .26 ? .8 : Math.max(0, .5 * (1 - (d - .26) / .6));
+}
 function visibleMask() {
   if (state === 'title' || state === 'end') return K.mask;
   if (state === 'caught') { const q = seq; return (q.phase === 'hit' || q.phase === 'carry') ? K.mask : (mask[I(q.hook.front.x | 0, q.hook.front.y | 0)] || K.mask); }
@@ -11,28 +54,31 @@ function visibleMask() {
 function drawLight(z, ox, oy, visM) {
   const s = z * LS;
   lx.globalCompositeOperation = 'source-over'; lx.setTransform(1, 0, 0, 1, 0, 0);
-  lx.fillStyle = 'rgb(3,4,10)'; lx.fillRect(0, 0, lc.width, lc.height);
+  // Nachtblau statt Schwarz: unbeleuchtete Flächen wirken wie im Mondschein
+  lx.fillStyle = 'rgb(4,7,18)'; lx.fillRect(0, 0, lc.width, lc.height);
   lx.globalCompositeOperation = 'destination-out';
-  lx.fillStyle = 'rgba(0,0,0,.15)'; lx.fillRect(0, 0, lc.width, lc.height);
-  lx.setTransform(s, 0, 0, s, ox * LS, oy * LS);
-  const dim = state === 'title' || state === 'end' ? .85 : 1;
-  for (let r = 1; r <= NR; r++) if ((visM & (1 << r)) && roomPath[r]) { lx.fillStyle = `rgba(0,0,0,${ROOMS[r].amb * dim})`; lx.fill(roomPath[r]); }
+  lx.fillStyle = 'rgba(0,0,0,.13)'; lx.fillRect(0, 0, lc.width, lc.height);
+  lx.setTransform(s, 0, 0, s, ox * LS, oy * LS); lightTf = { s, ox, oy, z };
+  // Grundhelligkeit: im Spiel etwas dunkler (das Licht macht den Unterschied), Blitze erhellen kurz alles im Freien
+  const bolt = lightning(), dim = state === 'title' || state === 'end' ? .85 : ROLE === 'killer' ? .95 : .8;
+  for (let r = 1; r <= NR; r++) if ((visM & (1 << r)) && roomPath[r]) { const o = ROOMS[r].out; lx.fillStyle = `rgba(0,0,0,${Math.min(.95, ROOMS[r].amb * (o ? Math.max(dim, .9) : dim) + (o ? bolt * .4 : bolt * .08))})`; lx.fill(roomPath[r]); }
+  if (bolt > 0 && OUTMASK & ~visM) { lx.fillStyle = `rgba(0,0,0,${bolt * .3})`; lx.fill(maskPath(OUTMASK & ~visM)); }
   lx.save(); lx.clip(maskPath(visM));
   const V = viewer();
+  viewBeam(V);
   if (state === 'play' && !V.hidden) {
-    lg(lx, V.x, V.y - .5, 3.6, .85);
-    // Taschenlampe nur aufrecht (nicht am Boden, getragen oder am Haken)
-    if (MODE !== 'team' || (V.hp > 0 && !V.carried && !V.hung && !V.out)) {
-      const a = V.dir, R = 7, g = lx.createRadialGradient(V.x, V.y - .4, .3, V.x, V.y - .4, R);
-      g.addColorStop(0, 'rgba(0,0,0,.78)'); g.addColorStop(1, 'rgba(0,0,0,0)'); lx.fillStyle = g;
-      lx.beginPath(); lx.moveTo(V.x, V.y - .4); lx.arc(V.x, V.y - .4, R, a - .48, a + .48); lx.closePath(); lx.fill();
+    lg(lx, V.x, V.y - .5, 3.8, .82);
+    if (beam) {
+      const g = lx.createRadialGradient(beam.x, beam.y, .3, beam.x, beam.y, beam.R);
+      g.addColorStop(0, `rgba(0,0,0,${beam.kp ? .6 : .92})`); g.addColorStop(.55, `rgba(0,0,0,${beam.kp ? .4 : .7})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+      lx.fillStyle = g; lx.fill(beam.path);
     }
   }
   // Teamkollegen tragen auch ein kleines Licht
   for (const sv of SV) if (sv !== V && state === 'play' && survShown(sv, visM)) lg(lx, sv.x, sv.y - .5, 2.4, .6);
   if (MODE === 'team' && state === 'play') for (const sv of SV) if (sv.hung && (visM & (1 << roomAt(sv.hung.front.x, sv.hung.front.y)))) lg(lx, sv.hung.cx + .3, sv.hung.cy - .3, 2.2, .55);
   if (state !== 'play' && K) lg(lx, K.x, K.y - .5, 3, .6);
-  for (const L of LAMPS) if (visM & (1 << L.room)) lg(lx, L.x, L.y, L.r, L.a * flick(L));
+  for (const L of LAMPS) if (visM & (1 << L.room)) lg(lx, L.x, L.y, L.r, L.moon ? Math.min(.9, L.a * (1 + bolt * 1.4)) : L.a * flick(L));
   for (const t of tasks) if (t.done && (visM & (1 << t.room))) lg(lx, t.cx, t.cy - .4, 3.6, .8);
   if (state === 'caught' && seq.phase !== 'hit' && seq.phase !== 'carry') lg(lx, seq.hook.cx, seq.hook.cy, 3, .7);
   if (MODE === 'team') for (const d of deaths) if (T - d.t0 < 3) lg(lx, d.h.cx + .3, d.h.cy + .4, 3, .7 * clamp((3 - (T - d.t0)) / .6, 0, 1));
@@ -59,10 +105,33 @@ function stains() {
 }
 function drawGlows(visM) {
   ctx.globalCompositeOperation = 'lighter';
-  for (const L of LAMPS) if (visM & (1 << L.room)) glow(L.x, L.y, L.r * .9, L.red ? `rgba(255,40,25,${.16 * flick(L)})` : `rgba(255,190,120,${.07 * flick(L)})`);
+  const bolt = lightning();
+  for (const L of LAMPS) if (visM & (1 << L.room)) glow(L.x, L.y, L.r * (L.moon ? 1 : .9), L.moon ? `rgba(120,160,255,${.07 + bolt * .2})` : L.red ? `rgba(255,40,25,${.18 * flick(L)})` : `rgba(255,190,120,${.11 * flick(L)})`);
+  // Lichtkegel: warm (Taschenlampe) bzw. rötlich (Blick des Killers), dazu Staub im Strahl
+  if (beam && lightTf) {
+    if (gcv.width !== lc.width || gcv.height !== lc.height) { gcv.width = lc.width; gcv.height = lc.height; }
+    gx.setTransform(1, 0, 0, 1, 0, 0); gx.clearRect(0, 0, gcv.width, gcv.height);
+    gx.setTransform(lightTf.s, 0, 0, lightTf.s, lightTf.ox * LS, lightTf.oy * LS);
+    gx.save(); gx.clip(maskPath(visM));
+    const g = gx.createRadialGradient(beam.x, beam.y, .2, beam.x, beam.y, beam.R);
+    g.addColorStop(0, beam.kp ? 'rgba(255,70,55,.12)' : 'rgba(255,222,165,.24)'); g.addColorStop(.6, beam.kp ? 'rgba(255,50,40,.06)' : 'rgba(255,214,150,.11)'); g.addColorStop(1, 'rgba(255,200,140,0)');
+    gx.fillStyle = g; gx.fill(beam.path); gx.restore();
+    const tf = ctx.getTransform();
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(gcv, 0, 0, gcv.width, gcv.height, 0, 0, gcv.width / LS, gcv.height / LS);
+    ctx.setTransform(tf);
+    ctx.save();
+    if (!beam.kp && !REDUCED) {
+      const V0 = viewer();
+      for (let i = 0; i < 14; i++) {
+        const a = V0.dir + (hash(i, 3) - .5) * .9, d = .8 + ((hash(i, 5) * 6 + T * (.18 + hash(i, 9) * .2)) % 6), x = beam.x + Math.cos(a) * d, y = beam.y + Math.sin(a) * d - .5 + Math.sin(T * 1.3 + i) * .12;
+        if (losClear(beam.x, beam.y, x, y + .5)) { ctx.fillStyle = `rgba(255,235,200,${.3 * (1 - d / 7)})`; ctx.beginPath(); ctx.arc(x, y, .022 + hash(i, 1) * .02, 0, TAU); ctx.fill(); }
+      }
+    }
+    ctx.restore();
+  }
+  if (WEATHER === 'fog') drawFog(visM);
   for (const t of tasks) if (t.done && (visM & (1 << t.room))) glow(t.cx, t.cy - .5, 2.4, 'rgba(255,220,150,.1)');
-  const V = viewer();
-  if (state === 'play' && !V.hidden && (MODE !== 'team' || (V.hp > 0 && !V.carried && !V.hung && !V.out))) glow(V.x + Math.cos(V.dir) * 1.6, V.y - .3 + Math.sin(V.dir) * 1.6, 2.4, 'rgba(255,225,170,.06)');
   if (killerVisible()) {
     const fx = K.x + Math.cos(K.dir) * 1.1, fy = K.y + Math.sin(K.dir) * 1.1;
     glow(fx, fy, 2.5, 'rgba(255,12,12,.3)'); glow(K.x, K.y - .6, .9, 'rgba(255,20,20,.12)');
@@ -104,6 +173,7 @@ function drawGlows(visM) {
       ctx.strokeStyle = `rgba(160,255,190,${.7 * p})`; ctx.lineWidth = .06; ctx.strokeRect(g.x0 - .2, g.y - 1.2, g.x1 - g.x0 + 1.4, 1.9);
     }
     if (MODE === 'team') drawTeamWorld(visM);
+    if (ROLE === 'killer') drawKillerSense();
   }
 }
 /* Klauen aus dem Boden: h = Haken (oder {cx, cy} wie ein Haken), t = Zeit (wachsen ab 0,9 s) */
@@ -152,6 +222,7 @@ function render() {
     ctx.strokeStyle = `rgba(185,20,28,${.55 * a})`; ctx.lineWidth = .05;
     ctx.beginPath(); ctx.moveTo(m.x - dx, m.y - dy); ctx.lineTo(m.x + dx, m.y + dy); ctx.moveTo(m.x - dx + .06, m.y - dy + .05); ctx.lineTo(m.x + dx * .6 + .06, m.y + dy * .6 + .05); ctx.stroke();
   }
+  if (WEATHER === 'rain') drawRainGround(x0, y0, x1, y1);
   const ents = collectEnts(); let ei = 0;
   for (let y = y0; y <= y1; y++) {
     for (let x = x0; x <= x1; x++) drawTile(x, y);
@@ -166,6 +237,7 @@ function render() {
     const g = a < 2.4 ? clamp(a / 1.1, 0, 1) : clamp(1 - (a - 2.4) / .5, 0, 1);
     drawClaws(d.h, .9 + 1.4 * g);
   }
+  if (WEATHER === 'rain') drawRain(x0, y0, x1, y1);
   const visM = visibleMask();
   drawLight(z, ox, oy, visM);
   ctx.setTransform(DPR * z, 0, 0, DPR * z, DPR * ox, DPR * oy);
@@ -175,6 +247,56 @@ function render() {
   if (state === 'play') drawHUD(z, ox, oy);
 }
 
+/* ---- Wetter (nur im Freien; Zeitplan aus T und hash, kein Math.random) ---- */
+const isOut = (x, y) => { if (x < 0 || y < 0 || x >= W || y >= H) return false; const r = room[I(x | 0, y | 0)]; return !!(r && ROOMS[r].out) && G[y | 0][x | 0] === '.'; };
+const outAt = (x, y) => { if (x < 0 || y < 0 || x >= W || y >= H) return true; const r = room[I(x | 0, y | 0)]; return r ? !!ROOMS[r].out : G[y | 0][x | 0] === 'T'; };
+/* Regentropfen auf dem Boden (unter den Figuren) */
+function drawRainGround(x0, y0, x1, y1) {
+  if (REDUCED) return;
+  const w = x1 - x0, h = y1 - y0;
+  ctx.lineWidth = .025;
+  for (let i = 0; i < 46; i++) {
+    const ph = T * 1.6 + hash(i, 11) * 7, k = Math.floor(ph), p = ph - k;
+    const x = x0 + hash(i, k) * w, y = y0 + hash(k, i + 40) * h;
+    if (!isOut(x, y)) continue;
+    ctx.strokeStyle = `rgba(190,205,235,${.3 * (1 - p)})`; ctx.beginPath(); ctx.ellipse(x, y, .05 + p * .22, (.05 + p * .22) * .45, 0, 0, TAU); ctx.stroke();
+  }
+}
+/* Regenfäden (über den Figuren, unter dem Licht) */
+function drawRain(x0, y0, x1, y1) {
+  const w = x1 - x0, h = y1 - y0 + 2;
+  ctx.strokeStyle = 'rgba(175,195,235,.26)'; ctx.lineWidth = .022; ctx.lineCap = 'butt';
+  ctx.beginPath();
+  for (let i = 0; i < 130; i++) {
+    const sp = 9 + hash(i, 2) * 5, x = x0 + hash(i, 1) * w, y = y0 - 1 + ((hash(i, 7) * h + (REDUCED ? 0 : T * sp)) % h), fy = y0 - 1 + hash(i, 13) * h;
+    if (y > fy || !isOut(x, fy) || !outAt(x, y - .3)) continue;   // fällt bis zu seinem Bodenpunkt (fy), nie durch ein Dach
+    ctx.moveTo(x, y - .1); ctx.lineTo(x - .1, y - .65);
+  }
+  ctx.stroke();
+}
+/* Nebelschwaden und Glühwürmchen (Karten mit weather 'fog') */
+function drawFog(visM) {
+  const V = viewer(), cx = cam.x, cy = cam.y;
+  ctx.save(); ctx.clip(maskPath(OUTMASK));
+  ctx.globalCompositeOperation = 'source-over';
+  for (let i = 0; i < 9; i++) {
+    const t = REDUCED ? 0 : T, x = Math.floor(cx / 9) * 9 + (hash(i, 21) - .5) * 30 + Math.sin(t * .05 + i * 2.1) * 3 + ((t * (.12 + hash(i, 4) * .1)) % 9), y = Math.floor(cy / 7) * 7 + (hash(i, 33) - .5) * 20 + Math.cos(t * .04 + i) * 1.5;
+    const R = 3.5 + hash(i, 8) * 2.5, g = ctx.createRadialGradient(x, y, 0, x, y, R);
+    g.addColorStop(0, 'rgba(170,190,210,.085)'); g.addColorStop(1, 'rgba(170,190,210,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(x, y, R, R * .5, 0, 0, TAU); ctx.fill();
+  }
+  ctx.restore();
+  if (REDUCED) return;
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 16; i++) {
+    const bx = Math.floor(cx / 16) * 16 + hash(i, 51) * 32 - 8, by = Math.floor(cy / 12) * 12 + hash(i, 67) * 24 - 6;
+    const x = bx + Math.sin(T * .5 + i * 1.7) * 1.2, y = by + Math.cos(T * .37 + i * 2.3) * .8, on = Math.max(0, Math.sin(T * 1.4 + i * 2.9));
+    if (on < .05 || !isOut(x, y)) continue;
+    glow(x, y - .5, .35, `rgba(200,255,120,${.5 * on})`);
+    ctx.fillStyle = `rgba(230,255,170,${.9 * on})`; ctx.beginPath(); ctx.arc(x, y - .5, .03, 0, TAU); ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'lighter';
+}
 /* ---- Team: Liegende, Hängende, Leisten in der Welt ---- */
 /* Am Boden: liegend (Kopf in Kriechrichtung), beim Kriechen Arme nach vorn und strampelnde Beine */
 function drawDowned(sv, x = sv.x, y = sv.y) {

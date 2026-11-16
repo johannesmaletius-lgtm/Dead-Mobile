@@ -5,6 +5,8 @@ let state = 'title', prevState = 'play';
 let T = 0, timeScale = 1, slowT = 0;
 /* SV: alle Überlebenden, S: der eigene (lokal gesteuerte), MODE: 'solo' | 'team' */
 let SV = [], MODE = 'solo';
+/* ROLE: was der lokale Spieler steuert – 'surv' (Überlebender S) oder 'killer' (js/kplayer.js; dann ist S nur ein Platzhalter) */
+let ROLE = 'surv';
 let S, K, Q = null, seq = null, marks = [], parts = [], splats = [], noises = [];
 let endgame = false, gatesPowered = false, flash = 0, flashCol = '195,18,31', eyeT = -9, chaseFlash = 0;
 let endWon = false, TUT = null, toastMsg = null, toastT = -9;
@@ -18,6 +20,7 @@ const cam = { x: 22, y: 19, z: 1, sh: 0 };
 let actNow = null;
 let save = { best: 0, wins: 0 };
 try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s) save = Object.assign(save, s); } catch (e) {}
+const diff = () => (TUT || TEST) ? DIFFS[1] : DIFFS[save.diff == null ? 1 : clamp(save.diff | 0, 0, 2)];
 function persist() { if (TEST) return; try { localStorage.setItem(KEY, JSON.stringify(save)); } catch (e) {} }
 try { const s = localStorage.getItem(KEY + '-snd'); if (s === '0') A.on = false; } catch (e) {}
 
@@ -26,7 +29,10 @@ function newSurv(x, y, o) { return Object.assign({ id: 0, kind: 'local', skin: '
   hookN: 0, hookProg: 0, unhookProg: 0, healProg: 0, wiggle: 0, heal: null, unhook: null, healedT: -9, unhookT: -9, outT: 0, leave: null, spec: null }, o); }
 function newKiller(x, y) { return { x, y, r: CFG.kR, dir: Math.PI / 2, mode: 'patrol', act: null, path: null, pi: 0, pathGoal: -1, repathT: 0, goal: null, inv: null, search: null, aware: 0, seenT: -99, lastSeen: { x, y }, chaseT: 0, blood: 0, trailT: 0, scanT: 0, moving: false, walk: 0, z: 0, stuck: 0, mask: mask[I(x | 0, y | 0)], lastContact: 0, stepT: 0,
   // Team-Regeln (js/rules.js): Getragener, Haken-Ziel, kein Camping, 40-s-Regel
-  carry: null, hookGoal: null, carryT: 0, campUntil: -99, campRoom: 0, hunt: { sv: null, t: 0, last: -99 }, ignore: null }; }
+  carry: null, hookGoal: null, carryT: 0, campUntil: -99, campRoom: 0, hunt: { sv: null, t: 0, last: -99 }, ignore: null,
+  // Gespielter Killer (js/kplayer.js): human 'local' | 'remote' | null (KI). Die übrigen Felder braucht viewer() (Sicht des Killers).
+  human: null, name: 'Killer', hp: 2, hidden: null, out: null, hung: null, carried: false, work: null, heal: null, ghost: false,
+  heard: [], instT: -99, instCd: 0, aim: Math.PI / 2, acts: null, hits: 0, downs: 0, hooksN: 0, breaks: 0, kicks: 0, found: 0, chases: 0 }; }
 
 function resetWorld() {
   tasks.forEach(t => { t.prog = 0; t.done = false; });
@@ -47,7 +53,7 @@ function uiPlay(tut) {
 function useMap(id) { if (MAPID !== id) { loadMap(id); onMapLoaded(); } }
 function startGame() {
   A.init();
-  useMap('schule'); MODE = 'solo';
+  useMap('schule'); MODE = 'solo'; ROLE = 'surv';
   TUT = null; endWon = false; toastMsg = null;
   resetWorld();
   const sp = pick(SPAWNS);
@@ -67,19 +73,26 @@ function assignSkins(roster) {
   const used = new Set(roster.map(p => p.skin).filter(Boolean));
   return roster.map(p => p.skin || skinList().find(k => !used.has(k) && used.add(k)) || 'cop');
 }
-function startTeam(mapId = 'schule-team', roster, spawnIdx) {
+/* opt.killer: 'local' = ich spiele den Killer (alle drei Überlebenden sind Bots/Mitspieler), 'remote' = ein Mitspieler
+   spielt ihn (online), sonst KI. opt.killerName: Name des Killer-Spielers. */
+function startTeam(mapId = 'schule-team', roster, spawnIdx, opt) {
   A.init();
   useMap(mapId); MODE = 'team';
   TUT = null; endWon = false; toastMsg = null;
-  resetWorld(); teamReset(); teamRoster = roster || null;
+  opt = opt || {}; ROLE = opt.killer === 'local' ? 'killer' : 'surv';
+  resetWorld(); teamReset(); teamRoster = roster || null; teamOpt = opt;
   roster = (roster || [{ kind: 'local', skin: save.skin }]).slice(0, 3);
   while (roster.length < 3) roster.push({ kind: 'bot' });
   const skins = assignSkins(roster), sp = spawnIdx != null ? SPAWNS[spawnIdx % SPAWNS.length] : pick(SPAWNS);
   SV = roster.map((p, i) => { const pos = sp.ss[i % sp.ss.length]; return newSurv(pos[0], pos[1], { id: p.id != null ? p.id : i, kind: p.kind, skin: skins[i], name: p.name || (typeof SKIN_NAMES !== 'undefined' && SKIN_NAMES[skins[i]]) || 'Überlebender ' + (i + 1) }); });
   S = SV.find(v => v.kind === 'local') || SV[0];
   K = newKiller(sp.k[0], sp.k[1]); K.lastContact = T;
+  if (opt.killer) { K.human = opt.killer; K.name = opt.killerName || 'Killer'; }
+  // Killer-Spieler: kein eigener Überlebender – S ist ein Platzhalter außerhalb der Karte (nicht in SV)
+  if (ROLE === 'killer') { S = newSurv(-50, -50, { id: -1, kind: 'none', ghost: true, name: '' }); }
   resetStats();
-  cam.x = S.x; cam.y = S.y; cam.z = 1;
+  const cv0 = ROLE === 'killer' ? K : S;
+  cam.x = cv0.x; cam.y = cv0.y; cam.z = 1;
   if (typeof Bots !== 'undefined') Bots.attach();   // freie Plätze bekommen die Bot-KI (js/bots.js)
   state = 'play';
   uiPlay(false);
@@ -90,6 +103,7 @@ const isWorked = t => SV.some(v => v.work === t);
    Klauen) ein Teamkollege im Spiel (S.spec). Ist niemand mehr im Spiel, bleibt die Sicht bei dem, der zuletzt rausging. */
 const specDelay = () => S.out === 'dead' ? 2.6 : 1.7;
 function viewer() {
+  if (ROLE === 'killer' && K) return K;
   if (MODE !== 'team' || !S || !S.out || T - S.outT < specDelay()) return S;
   if (S.spec && inPlay(S.spec)) return S.spec;
   const a = SV.filter(inPlay);

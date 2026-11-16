@@ -2,6 +2,7 @@
 /* Karte: Schule – Solo-Karte (unverändert) und kleine Team-Variante mit Duo-Aufgabe in der Turnhalle */
 MAPS.schule = {
   name: 'Schule',
+  weather: 'rain',   // Wetter draußen: 'rain' (Regen, Gewitter) | 'fog' (Nebel, Glühwürmchen)
   grid: [
   "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
   "TTTTTTTTTTTTTTTTTTTTTEETTTTTTTTTTTTTTTTTTTTTTT",

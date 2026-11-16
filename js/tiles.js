@@ -3,10 +3,11 @@
 /* ---- Kacheln ---- */
 function wallTile(x, y) {
   const v = hash(x, y);
-  ctx.fillStyle = v < .33 ? '#34303b' : v < .66 ? '#312d37' : '#37333e'; ctx.fillRect(x, y - WH, 1, 1);
+  ctx.fillStyle = v < .33 ? '#3a3643' : v < .66 ? '#37333f' : '#3d3946'; ctx.fillRect(x, y - WH, 1, 1);
   if (v > .8) { ctx.fillStyle = 'rgba(0,0,0,.12)'; ctx.fillRect(x + v * .5, y - WH + .2, .3, .25); }
+  else if (v < .12) { ctx.strokeStyle = 'rgba(0,0,0,.22)'; ctx.lineWidth = .02; ctx.beginPath(); ctx.moveTo(x + .2 + v, y - WH + .15); ctx.lineTo(x + .45 + v, y - WH + .5); ctx.lineTo(x + .35 + v, y - WH + .8); ctx.stroke(); }
   const up = ch(x, y - 1);
-  if (!WALLISH(up)) { ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.fillRect(x, y - WH, 1, .035); }
+  if (!WALLISH(up)) { ctx.fillStyle = 'rgba(255,255,255,.1)'; ctx.fillRect(x, y - WH, 1, .04); }
   if (!WALLISH(ch(x - 1, y))) { ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fillRect(x, y - WH, .035, 1); }
   if (!WALLISH(ch(x + 1, y))) { ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fillRect(x + .965, y - WH, .035, 1); }
   if (!WALLISH(ch(x, y + 1))) wallFront(x, y, floorRoom(x, y + 1));
@@ -15,7 +16,8 @@ function wallTile(x, y) {
 function boardAt(x, y, r) { const bs = MAPDEF.boards; if (bs) for (const b of bs) if (b.y === y && b.r === r && x >= b.x0 && x <= b.x1) return b; return null; }
 function wallFront(x, y, r) {
   const fy = y + 1 - WH, out = ROOMS[r] && ROOMS[r].out;
-  ctx.fillStyle = out ? '#3a2420' : '#29272f'; ctx.fillRect(x, fy, 1, WH);
+  ctx.fillStyle = out ? '#3a2420' : '#25232b'; ctx.fillRect(x, fy, 1, WH);
+  ctx.fillStyle = 'rgba(255,255,255,.09)'; ctx.fillRect(x, fy - .03, 1, .03);   // Kante zwischen Mauerkrone und Front
   if (out) {
     ctx.fillStyle = 'rgba(0,0,0,.3)';
     for (let k = 1; k < 4; k++) ctx.fillRect(x, fy + k * WH / 4, 1, .018);
@@ -36,7 +38,8 @@ function wallFront(x, y, r) {
     } else if (ws === 'gym') { ctx.fillStyle = '#22324a'; ctx.fillRect(x, fy + WH * .45, 1, WH * .45); ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(x + .98, fy + WH * .45, .02, WH * .45); }
     else if (ws === 'tile') { ctx.fillStyle = 'rgba(200,205,210,.1)'; for (let k = 0; k < 4; k++) ctx.fillRect(x + k * .25, fy + .05, .012, WH - .1); ctx.fillRect(x, fy + WH / 2, 1, .012); }
     else if (ws === 'pipe') { ctx.fillStyle = '#3a3d42'; ctx.fillRect(x, fy + .1, 1, .06); ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(x, fy + .16, 1, .02); }
-    ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(x, fy + WH - .06, 1, .06);
+    ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.fillRect(x, fy + WH * .55, 1, WH * .45);
+    ctx.fillStyle = '#17161b'; ctx.fillRect(x, fy + WH - .07, 1, .07);   // Fußleiste
   }
   ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(x, fy, 1, .02);
 }
@@ -66,11 +69,13 @@ function windowTile(x, y) {
 function treeTile(x, y) {
   const v = hash(x, y), v2 = hash(y + 3, x);
   const cx = x + .5 + (v - .5) * .25, cy = y + .3 + (v2 - .5) * .2, R = .66 + v * .14;
+  const sw = REDUCED ? 0 : Math.sin(T * (.7 + v * .5) + x * .9 + y * .6) * (WEATHER === 'rain' ? .045 : .02);   // Wind
   ell(cx + .12, y + .9, R * .8, R * .3, 'rgba(0,0,0,.35)');
   ctx.fillStyle = '#2a1d15'; ctx.fillRect(cx - .06, y + .5, .12, .38);
-  circ(cx, cy - .25, R, v < .5 ? '#0d1812' : '#0f1b14');
-  circ(cx - .12, cy - .38, R * .72, '#132217');
-  circ(cx - .2, cy - .5, R * .4, '#19301f');
+  circ(cx + sw * .4, cy - .25, R, v < .5 ? '#0d1812' : '#0f1b14');
+  circ(cx - .12 + sw, cy - .38, R * .72, '#132217');
+  circ(cx - .2 + sw * 1.5, cy - .5, R * .4, '#19301f');
+  if (v2 > .55) circ(cx + .22 + sw, cy - .12, R * .3, '#16281b');
 }
 function deskTile(x, y, k) {
   const mensa = (ROOMS[room[I(x, y)]] || {}).f === 'tiles' || k;

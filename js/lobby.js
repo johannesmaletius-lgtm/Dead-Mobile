@@ -20,8 +20,9 @@ const Lobby = (() => {
   let view = null;        // null | 'team' | 'room'
   let busy = false;       // Verbindungsaufbau läuft
   let net = false;        // läuft gerade ein Online-Spiel (oder dessen Endbildschirm)?
-  let last = null;        // letztes Offline-Spiel { map, roster } für „Nochmal"
+  let last = null;        // letztes Offline-Spiel { map, roster, opt } für „Nochmal"
   let roomMap = null;
+  let roomKiller = -1;    // Wer spielt den Killer: -1 = KI, sonst die ID eines Spielers im Raum (der Host bestimmt)
   let built = false, noticeT = 0;
 
   /* ---------- Porträts: skinPortrait(skin, px) aus figures.js, sonst Farbkreis mit Silhouette ---------- */
@@ -56,7 +57,7 @@ const Lobby = (() => {
   function hideNotice() { clearTimeout(noticeT); $('#notice').hidden = true; }
   function setBusy(on, txt) {
     busy = on;
-    for (const s of ['#tBots', '#tHost', '#tJoin', '#tName', '#tCode']) $(s).disabled = on;
+    for (const s of ['#tBots', '#tKill', '#tHost', '#tJoin', '#tName', '#tCode']) $(s).disabled = on;
     for (const b of document.querySelectorAll('#tSkins .skin, #tMaps button')) b.disabled = on;
     setMsg('#tMsg', txt, on ? 'busy' : '');
   }
@@ -138,10 +139,17 @@ const Lobby = (() => {
 
   /* ---------- Spielen ---------- */
   // roster: [{ id, name, skin, kind }]; online kommt spawn vom Host
-  function launch(map, roster, spawn, online) {
+  function launch(map, roster, spawn, online, opt) {
     screens(null); hideNotice(); net = online;
-    startTeam(map, roster, spawn);
+    startTeam(map, roster, spawn, opt);
     gameButtons(true);
+  }
+  // Offline als Killer: alle drei Überlebenden sind Bots
+  function playKiller() {
+    if (busy) return;
+    const map = pickMap(), roster = skins().slice(0, 3).map((s, i) => ({ id: i, kind: 'bot', skin: s })), opt = { killer: 'local' };
+    last = { map, roster, opt };
+    launch(map, roster, undefined, false, opt);
   }
   function playBots() {
     if (busy) return;
@@ -154,27 +162,29 @@ const Lobby = (() => {
     if (busy) return;
     setBusy(true, 'Raum wird erstellt');
     try { await Net.host(me()); } catch (e) { if (e.code !== 'aborted') { setBusy(false); setMsg('#tMsg', e.message, 'err'); } return; }
-    setBusy(false); roomMap = pickMap(); showRoom();
+    setBusy(false); roomMap = pickMap(); roomKiller = -1; showRoom();
   }
   async function join() {
     if (busy) return;
     const inp = $('#tCode'), code = Net.normCode(inp.value);
     if (!Net.okCode(code)) { setMsg('#tMsg', Net.TEXT.code, 'err'); inp.focus(); return; }
-    inp.blur(); roomMap = null; setBusy(true, 'Verbinde mit Raum ' + code);
+    inp.blur(); roomMap = null; roomKiller = -1; setBusy(true, 'Verbinde mit Raum ' + code);
     try { await Net.join(code, me()); } catch (e) { if (e.code !== 'aborted') { setBusy(false); setMsg('#tMsg', e.message, 'err'); } return; }
     setBusy(false); showRoom();
   }
 
   /* ---------- Raum (Lobby) ---------- */
   // 3 Plätze, Platz = ID; freie Plätze werden Bots (mit den noch freien Figuren)
+  // (Bots bekommen IDs, die kein Spieler hat). Wer den Killer spielt, belegt keinen der drei Plätze.
+  const killerPeer = () => Net.peers.find(p => p.id === roomKiller) || null;
   function seats() {
-    const ps = Net.peers, used = new Set(ps.map(p => p.skin)), free = skins().filter(s => !used.has(s)), out = [];
-    for (let id = 0; id < 3; id++) {
-      const p = ps.find(q => q.id === id);
-      out.push(p ? { id, name: p.name, skin: p.skin, human: true } : { id, name: '', skin: free.shift() || skins()[id % skins().length], human: false });
-    }
+    const ps = Net.peers.filter(p => p.id !== roomKiller).slice(0, 3), used = new Set(ps.map(p => p.skin)), free = skins().filter(s => !used.has(s));
+    const ids = [0, 1, 2, 3].filter(i => !Net.peers.some(p => p.id === i)), out = ps.map(p => ({ id: p.id, name: p.name, skin: p.skin, human: true }));
+    while (out.length < 3) out.push({ id: ids.shift(), name: '', skin: free.shift() || skins()[out.length % skins().length], human: false });
     return out;
   }
+  // Zu viert muss einer der Killer sein
+  const canStart = () => Net.peers.length <= 3 || !!killerPeer();
   let lastIds = '';
   function showRoom() { screens('room'); lastIds = ''; renderRoom(); }
   function renderRoom() {
@@ -195,23 +205,40 @@ const Lobby = (() => {
       list.append(li);
     }
     lastIds = ids;
-    $('#rCount').textContent = Net.peers.length + ' / 3';
-    $('#rHint').textContent = host ? 'Sag deinen Freunden den Code. Freie Plätze übernehmen Bots.' : 'Du bist drin. Der Host wählt die Karte und startet.';
-    if (roomMap) mapPicker($('#rMaps'), roomMap, host && (id => { roomMap = id; save.map = id; persist(); Net.send({ t: 'lobby', map: id }); renderRoom(); }));
+    // Killer: KI oder ein Spieler (der Host blättert durch)
+    const kp = killerPeer(), kb = $('#rKiller'), opts = [-1, ...Net.peers.map(p => p.id)], ki = Math.max(0, opts.indexOf(roomKiller));
+    kb.textContent = '';
+    const kn = el('span', 'mapname', kp ? shown(kp) + (kp.id === Net.myId ? ' (du)' : '') : 'KI');
+    if (host && Net.peers.length > 0) {
+      const sel = el('div', 'mapsel'), arrow = (d, lbl, path) => {
+        const b = el('button', 'arr'); b.type = 'button'; b.setAttribute('aria-label', lbl); b.innerHTML = `<svg viewBox="0 0 24 24"><path d="${path}"/></svg>`;
+        b.addEventListener('click', () => { roomKiller = opts[(ki + d + opts.length) % opts.length]; sendLobby(); renderRoom(); });
+        return b;
+      };
+      sel.append(arrow(-1, 'Voriger', 'M15 5l-7 7 7 7'), kn, arrow(1, 'Nächster', 'M9 5l7 7-7 7')); kb.append(sel);
+    } else kb.append(kn);
+    $('#rStart').disabled = !canStart();
+    $('#rCount').textContent = Net.peers.length + ' / 4';
+    $('#rHint').textContent = !canStart() ? 'Zu viert muss einer von euch der Killer sein.' : host ? 'Sag deinen Freunden den Code. Freie Plätze übernehmen Bots.' : 'Du bist drin. Der Host wählt Karte und Killer und startet.';
+    if (roomMap) mapPicker($('#rMaps'), roomMap, host && (id => { roomMap = id; save.map = id; persist(); sendLobby(); renderRoom(); }));
     else $('#rMaps').textContent = '…';
     $('#rStart').hidden = !host; $('#rWait').hidden = host;
   }
+  const sendLobby = to => { if (Net.isHost) Net.send({ t: 'lobby', map: roomMap, killer: roomKiller }, to); };
   function hostStart() {
-    if (!Net.isHost || view !== 'room') return;
-    const m = { t: 'start', map: roomMap, spawn: (Math.random() * 9973) | 0, roster: seats() };
+    if (!Net.isHost || view !== 'room' || !canStart()) return;
+    const kp = killerPeer(), m = { t: 'start', map: roomMap, spawn: (Math.random() * 9973) | 0, roster: seats(), killer: kp ? kp.id : -1, kname: kp ? shown(kp) : '' };
     Net.send(m); begin(m);
   }
   // Alle (Host und Clients): Spiel mit den Daten des Hosts starten
   function begin(m) {
     if (!MAPS[m.map] || !Array.isArray(m.roster)) { Net.leave(); toTitle(); notice('Unbekannte Karte – bitte das Spiel neu laden.'); return; }
     const roster = m.roster.slice(0, 3).map(p => ({ id: p.id, name: cleanName(p.name), skin: p.skin, kind: p.human ? (p.id === Net.myId ? 'local' : 'remote') : 'bot' }));
-    launch(m.map, roster, m.spawn, true);
-    Net.gameStarted({ map: m.map, spawn: m.spawn, roster });
+    // Killer: ich ('local'), ein Mitspieler ('remote') oder die KI
+    const opt = m.killer >= 0 ? { killer: m.killer === Net.myId ? 'local' : 'remote', killerId: m.killer, killerName: cleanName(m.kname) || 'Killer' } : {};
+    launch(m.map, roster, m.spawn, true, opt);
+    Net.gameStarted({ map: m.map, spawn: m.spawn, roster, killer: m.killer });
+    if (opt.killer === 'remote') toast(opt.killerName + ' ist der Killer');
   }
   // Nach dem Spiel zurück in den Raum (Host nimmt alle mit)
   function toRoom() {
@@ -224,7 +251,7 @@ const Lobby = (() => {
   /* ---------- Knöpfe aus main.js ---------- */
   function again() {   // Endbildschirm „Nochmal" im Team-Modus
     if (inNetGame()) { toRoom(); return; }
-    if (last) launch(last.map, last.roster, undefined, false); else if (teamRoster) teamRestart(); else playBots();
+    if (last) launch(last.map, last.roster, undefined, false, last.opt); else if (teamRoster) teamRestart(); else playBots();
   }
   function restart() { if (!inNetGame()) again(); }   // Pause-Menü „Neu starten" (online ausgeblendet)
   function leaveGame() { if (inNetGame()) Net.leave(); toTitle(); }
@@ -236,10 +263,10 @@ const Lobby = (() => {
   }
 
   /* ---------- Netz-Ereignisse ---------- */
-  Net.on('peers', renderRoom);
-  Net.on('join', p => { if (Net.isHost) Net.send({ t: 'lobby', map: roomMap }, p.id); });
+  Net.on('peers', () => { if (Net.isHost && roomKiller >= 0 && !killerPeer()) { roomKiller = -1; sendLobby(); } renderRoom(); });
+  Net.on('join', p => sendLobby(p.id));
   Net.on('leave', p => { if (inNetGame() && state !== 'title') toast(shown(p) + ' hat das Spiel verlassen'); });
-  Net.on('lobby', m => { if (!Net.isHost && MAPS[m.map]) { roomMap = m.map; renderRoom(); } });
+  Net.on('lobby', m => { if (!Net.isHost && MAPS[m.map]) { roomMap = m.map; roomKiller = m.killer >= 0 ? m.killer | 0 : -1; renderRoom(); } });
   Net.on('start', m => { if (!Net.isHost) begin(m); });
   Net.on('back', () => { if (Net.isHost) return; if (view === 'room') Net.gameEnded('back'); else if (net) toRoom(); });
   Net.on('close', (why, txt) => {
@@ -252,6 +279,7 @@ const Lobby = (() => {
   $('#teamBack').addEventListener('click', back);
   $('#roomBack').addEventListener('click', back);
   $('#tBots').addEventListener('click', playBots);
+  $('#tKill').addEventListener('click', playKiller);
   $('#tHost').addEventListener('click', create);
   $('#tJoin').addEventListener('click', join);
   $('#rStart').addEventListener('click', hostStart);
@@ -280,5 +308,5 @@ const Lobby = (() => {
   const inv = Net.normCode(new URLSearchParams(location.search).get('join'));
   if (Net.okCode(inv)) setTimeout(() => { if (state === 'title' && !view) { open(); $('#tCode').value = inv; } }, 0);
 
-  return { open, again, restart, leaveGame, key, teamMaps, get view() { return view; }, get net() { return net; }, get roomMap() { return roomMap; }, notice };
+  return { open, again, restart, leaveGame, key, teamMaps, playKiller, get view() { return view; }, get net() { return net; }, get roomMap() { return roomMap; }, get roomKiller() { return roomKiller; }, setKiller(id) { if (Net.isHost) { roomKiller = id; sendLobby(); renderRoom(); } }, notice };
 })();
