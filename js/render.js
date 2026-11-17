@@ -20,6 +20,21 @@ function rrp(c, x, y, w, h, r) { r = Math.min(r, w / 2, h / 2); c.beginPath(); c
 function rr(x, y, w, h, r, col) { if (col) ctx.fillStyle = col; rrp(ctx, x, y, w, h, r); ctx.fill(); }
 function box(x, y, w, d, h, top, front) { ctx.fillStyle = top; ctx.fillRect(x, y - h, w, d); if (front) { ctx.fillStyle = front; ctx.fillRect(x, y + d - h, w, h); } }
 
+/* Filmkorn: kleines Rauschbild, wird gekachelt und je Bild versetzt über alles gelegt */
+const grainCv = document.createElement('canvas'); let grainPat = null;
+(function () {
+  grainCv.width = grainCv.height = 128;
+  const g = grainCv.getContext('2d'), im = g.createImageData(128, 128), rnd = mulberry(99);
+  // helle und dunkle Körner mit wenig Deckkraft: braucht keinen Mischmodus (auf Handys billig)
+  for (let i = 0; i < im.data.length; i += 4) { const v = rnd() < .5 ? 0 : 255; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = rnd() * (v ? 10 : 20) | 0; }
+  g.putImageData(im, 0, 0);
+})();
+function drawGrain() {
+  if (!grainPat) grainPat = ctx.createPattern(grainCv, 'repeat');
+  const k = REDUCED ? 0 : Math.floor(T * 18), ox = (hash(k, 3) * 128) | 0, oy = (hash(k, 9) * 128) | 0;
+  ctx.save(); ctx.translate(-ox, -oy);
+  ctx.fillStyle = grainPat; ctx.fillRect(0, 0, VW + 128, VH + 128); ctx.restore();
+}
 /* Boden einmal vorzeichnen */
 function buildFloor() {
   floorCv.width = W * FR; floorCv.height = H * FR;

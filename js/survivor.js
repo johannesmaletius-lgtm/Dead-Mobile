@@ -139,6 +139,7 @@ function dropPallet(p, sv = S) {
     const side = Math.abs(kl) > .05 ? Math.sign(kl) : -s;
     K.x += p.ax.x * (side * (.5 + K.r + .03) - kl); K.y += p.ax.y * (side * (.5 + K.r + .03) - kl);
     K.act = { kind: 'stun', t: 0, dur: CFG.stun }; stats.stuns++; K.blood = 0; K.chaseT = 0; K.path = null; SFX.stun(); shake(sv === S ? .5 : .3);
+    if (ROLE === 'killer') kStunned();
     if (MODE === 'team' && K.carry) dropCarried('pallet'); // Paletten-Stun beim Tragen: er lässt fallen
     if (TUT) toast('Volltreffer – er ist betäubt!');
   }

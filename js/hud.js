@@ -19,6 +19,7 @@ function drawOverlays(z, ox, oy) {
   }
   const g2 = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * .35, VW / 2, VH / 2, vr * .75);
   g2.addColorStop(0, 'rgba(0,0,0,0)'); g2.addColorStop(1, 'rgba(0,0,0,.55)'); ctx.fillStyle = g2; ctx.fillRect(0, 0, VW, VH);
+  drawGrain();
   if (flash > 0) { ctx.fillStyle = `rgba(${flashCol},${flash * .45})`; ctx.fillRect(0, 0, VW, VH); }
   if (state === 'caught' && seq.phase === 'fade') { ctx.fillStyle = `rgba(0,0,0,${Math.min(1, seq.t / 1.2)})`; ctx.fillRect(0, 0, VW, VH); }
   if (state === 'won') { ctx.fillStyle = `rgba(4,6,14,${Math.min(1, seq.t / 1.6)})`; ctx.fillRect(0, 0, VW, VH); }
@@ -27,7 +28,7 @@ function drawOverlays(z, ox, oy) {
   if (state === 'play' && toastMsg && ta < 2.6) {
     const a = Math.min(1, ta / .15, (2.6 - ta) / .4);
     ctx.save(); ctx.globalAlpha = a; ctx.font = '16px "Special Elite", "Courier New", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const w = Math.min(VW - 32, ctx.measureText(toastMsg).width + 32), y = VH / 2 + 70;
+    const w = Math.min(VW - 32, ctx.measureText(toastMsg).width + 32), y = Math.min(VH / 2 + 70, VH - SAB - 200);   // nicht über den Knöpfen
     ctx.fillStyle = 'rgba(6,7,12,.82)'; rrp(ctx, VW / 2 - w / 2, y - 20, w, 40, 20); ctx.fill();
     ctx.strokeStyle = 'rgba(242,193,75,.6)'; ctx.lineWidth = 1.5; ctx.stroke();
     ctx.fillStyle = '#ebe7dc'; ctx.fillText(toastMsg, VW / 2, y + 1, VW - 48); ctx.restore();
@@ -72,6 +73,11 @@ function icon(kind, cx, cy, s, col, lw = 2.2) {
     case 'carry': ctx.arc(-.35, -.62, .22, 0, TAU); ctx.fill(); ctx.beginPath(); ctx.moveTo(-.35, -.38); ctx.lineTo(-.35, .3); ctx.lineTo(-.6, .95); ctx.moveTo(-.35, .3); ctx.lineTo(-.1, .95); ctx.moveTo(-.75, -.05); ctx.lineTo(.85, -.32); ctx.stroke(); break;
     case 'heart': ctx.moveTo(0, .8); ctx.bezierCurveTo(-1.2, -.1, -.6, -.95, 0, -.3); ctx.bezierCurveTo(.6, -.95, 1.2, -.1, 0, .8); ctx.fill(); break;
     case 'hurt': ctx.moveTo(0, .8); ctx.bezierCurveTo(-1.2, -.1, -.6, -.95, 0, -.3); ctx.lineTo(-.12, .05); ctx.lineTo(.1, .3); ctx.closePath(); ctx.fill(); ctx.beginPath(); ctx.moveTo(.12, -.24); ctx.bezierCurveTo(.6, -.95, 1.2, -.1, .06, .74); ctx.lineTo(.22, .3); ctx.lineTo(-.02, .05); ctx.closePath(); ctx.fill(); break;
+    // Killer
+    case 'knife': ctx.save(); ctx.rotate(.6); ctx.moveTo(-.16, -.95); ctx.lineTo(.2, -.2); ctx.lineTo(.2, .25); ctx.lineTo(-.16, .25); ctx.closePath(); ctx.fill(); ctx.fillRect(-.3, .25, .64, .13); ctx.fillRect(-.1, .38, .24, .55); ctx.restore(); break;
+    case 'break': ctx.moveTo(-.9, -.2); ctx.lineTo(-.15, -.35); ctx.lineTo(-.3, .0); ctx.lineTo(-.05, .2); ctx.lineTo(-.9, .4); ctx.closePath(); ctx.fill(); ctx.beginPath(); ctx.moveTo(.9, -.5); ctx.lineTo(.1, -.3); ctx.lineTo(-.02, .0); ctx.lineTo(.25, .25); ctx.lineTo(.9, .1); ctx.closePath(); ctx.fill(); ctx.beginPath(); ctx.moveTo(-.2, -.9); ctx.lineTo(0, -.6); ctx.moveTo(.35, -.95); ctx.lineTo(.25, -.65); ctx.moveTo(0, .55); ctx.lineTo(.1, .9); ctx.stroke(); break;
+    case 'kick': ctx.moveTo(-.55, -.9); ctx.lineTo(-.1, -.9); ctx.lineTo(-.05, .15); ctx.lineTo(.75, .35); ctx.lineTo(.8, .7); ctx.lineTo(-.6, .7); ctx.closePath(); ctx.fill(); ctx.beginPath(); ctx.moveTo(.55, -.6); ctx.lineTo(.85, -.8); ctx.moveTo(.6, -.25); ctx.lineTo(.95, -.25); ctx.stroke(); break;
+    case 'noise': ctx.rect(-.12, -.9, .24, 1.15); ctx.fill(); ctx.beginPath(); ctx.arc(0, .7, .17, 0, TAU); ctx.fill(); break;
     case 'eye': ctx.moveTo(-.9, 0); ctx.quadraticCurveTo(0, -.75, .9, 0); ctx.quadraticCurveTo(0, .75, -.9, 0); ctx.stroke(); ctx.beginPath(); ctx.arc(0, 0, .26, 0, TAU); ctx.fill(); break;
   }
   ctx.restore();
@@ -84,8 +90,8 @@ function heart(cx, cy, s, fill, stroke) {
 }
 function drawHUD(z, ox, oy) {
   // Aufgaben oben links (Zuschauer: Herzen des Teamkollegen)
-  const hy = SAT + 24, V = viewer();
-  for (let k = 0; k < 2; k++) {
+  const hy = SAT + 24, V = viewer(), kp = ROLE === 'killer';
+  if (!kp) for (let k = 0; k < 2; k++) {
     const full = k < V.hp, cx = SAL + 18 + k * 22, pul = !full ? 0 : (V.hp < 2 ? 1 + .12 * Math.sin(T * 6) : 1);
     heart(cx, hy, 8.5 * (pul || 1), full ? '#c3121f' : 'rgba(6,7,12,.6)', full ? 'rgba(255,200,200,.5)' : 'rgba(235,231,220,.4)');
   }
@@ -113,6 +119,7 @@ function drawHUD(z, ox, oy) {
     ctx.beginPath(); ctx.moveTo(12, 0); ctx.lineTo(-6, -8); ctx.lineTo(-2, 0); ctx.lineTo(-6, 8); ctx.closePath(); ctx.fill(); ctx.restore();
     if (ic) { const bx = px - Math.cos(a) * 20, by = py - Math.sin(a) * 20; ctx.fillStyle = 'rgba(6,7,12,.75)'; ctx.beginPath(); ctx.arc(bx, by, 11, 0, TAU); ctx.fill(); icon(ic, bx, by, 6.5, col, 1.8); }
   };
+  if (kp) { killerHUD(edge); drawJoystick(); return; }
   if (!V.hidden) {
     const pa = .55 + .35 * Math.sin(T * 3);
     for (const t of tasks) if (!t.done) edge(t.cx, t.cy - .3, `rgba(242,193,75,${pa})`);
@@ -153,7 +160,9 @@ function drawHUD(z, ox, oy) {
     if (MODE === 'team') teamButtonRing(b);
     if (kind) { ctx.save(); if (kind === 'valve' && Q && Q.hold) { ctx.translate(b.x, b.y); ctx.rotate(T * 4); ctx.translate(-b.x, -b.y); } icon(kind, b.x, b.y, 19, '#ebe7dc', 2.6); ctx.restore(); }
   }
-  // Joystick
+  drawJoystick();
+}
+function drawJoystick() {
   if (joy.id !== null) {
     const dx = joy.x - joy.bx, dy = joy.y - joy.by, l = hyp(dx, dy), k = l > JOY_R ? JOY_R / l : 1;
     const run = l / JOY_R > .62;
@@ -319,9 +328,12 @@ function teamHUD(V) {
 function pointsLabel(x, y) {
   const p = taskPoints(), done = p >= NEED;
   ctx.font = '15px "Special Elite", "Courier New", monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  const txt = 'Punkte ' + Math.min(p, NEED) + '/' + NEED, w = ctx.measureText(txt).width + 18;
+  // Endspiel: statt der Punkte die Restzeit (danach holt es alle, die noch drin sind)
+  const left = collapseAt ? Math.max(0, collapseAt - T) : -1, hot = left >= 0 && left < 30;
+  const txt = left >= 0 ? (ROLE === 'killer' ? 'Tore offen ' : 'Raus hier! ') + fmt(left) : 'Punkte ' + Math.min(p, NEED) + '/' + NEED, w = ctx.measureText(txt).width + 18;
   ctx.fillStyle = 'rgba(6,7,12,.6)'; rrp(ctx, x - 8, y - 13, w, 26, 13); ctx.fill();
-  ctx.fillStyle = done ? '#7dff9a' : '#f2c14b'; ctx.fillText(txt, x + 1, y + 1);
+  if (left >= 0) { ctx.fillStyle = hot ? 'rgba(255,45,45,.85)' : 'rgba(125,255,160,.7)'; ctx.fillRect(x + 1, y + 10, (w - 18) * left / CFG.collapse, 2); }
+  ctx.fillStyle = hot ? `rgba(255,107,107,${.7 + .3 * Math.sin(T * 8)})` : done ? '#7dff9a' : '#f2c14b'; ctx.fillText(txt, x + 1, y + 1);
 }
 /* Großanzeige für den eigenen Zustand: Zappeln (unten), am Haken (oben), am Boden (unten), wird geheilt (oben) */
 function selfStatus() {
@@ -347,7 +359,7 @@ function selfStatus() {
     const fight = S.hookProg >= .5, saving = S.unhookProg > 0;
     panel(high, 260, S.hookProg, fight ? `rgba(255,45,45,${.75 + .25 * Math.sin(T * 8)})` : '#b3121b', .5,
       fight ? 'Kampfphase – halte durch!' : 'Am Haken', fight ? '#ff6b6b' : '#ebe7dc',
-      saving ? 'Du wirst gerettet …' : S.hookN >= 2 ? 'Beim nächsten Haken ist es vorbei' : 'Warte auf Rettung', saving ? '#7dff9a' : undefined);
+      saving ? 'Du wirst gerettet …' : S.camped ? 'Der Killer lauert – die Zeit läuft langsamer' : S.hookN >= 2 ? 'Beim nächsten Haken ist es vorbei' : 'Warte auf Rettung', saving ? '#7dff9a' : undefined);
     if (saving) { ctx.fillStyle = '#ebe7dc'; ctx.fillRect(VW / 2 - 130, high + 15, 260 * S.unhookProg, 3); }
   } else if (S.hp <= 0) {
     const healing = T - S.healedT < .3;

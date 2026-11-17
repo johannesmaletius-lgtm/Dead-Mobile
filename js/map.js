@@ -27,7 +27,7 @@ const firstBit = m => { for (let r = 1; r <= NR; r++) if (m & (1 << r)) return r
 const tasks = [], pallets = [], windows = [], lockers = [], hooks = [], gates = [], openings = [], boilers = [];
 let palletAt = {}, windowAt = {}, lockerAt = {}, taskAt = {}, hookAt = {}, gateAt = {}, boilerAt = {};
 const car = { x0: 1e9, y0: 1e9, x1: 0, y1: 0, has: false, room: 0 };
-let roomFloor = {}, LAMPS = [], SPAWNS = [];
+let roomFloor = {}, LAMPS = [], SPAWNS = [], OUTMASK = 0, WEATHER = '';   // WEATHER: 'rain' (mit Gewitter) | 'fog' | ''
 function freeNeighbor(x, y) {
   for (const [dx, dy] of [[0, 1], [1, 0], [-1, 0], [0, -1]]) { const c = ch(x + dx, y + dy); if (c === '.' || c === 'D') return { x: x + dx + .5, y: y + dy + .5 }; }
   return { x: x + .5, y: y + 1.5 };
@@ -137,7 +137,17 @@ function loadMap(id) {
   NEED = def.need || tasks.reduce((s, t) => s + t.points, 0);
   // Lampen: Objekte {x,y,r,a,fl,red} oder Kurzform [x, y, r, 'warm'|'red']
   LAMPS = (def.lamps || []).map((L, k) => Array.isArray(L) ? { x: L[0], y: L[1], r: L[2] || 3.2, a: L[3] === 'red' ? .5 : .62, fl: [.1, 0, .4, .2, .6][k % 5], red: L[3] === 'red' ? 1 : 0 } : Object.assign({}, L));
+  // Mondlicht: Fenster mit einer Seite im Freien werfen innen einen bläulichen Schein
+  for (const w of windows) {
+    const ra = room[I(w.x + w.ax.x, w.y + w.ax.y)], rb = room[I(w.x - w.ax.x, w.y - w.ax.y)];
+    const oa = ROOMS[ra] && ROOMS[ra].out, ob = ROOMS[rb] && ROOMS[rb].out;
+    if (!ra || !rb || !!oa === !!ob) continue;
+    const s = oa ? -1 : 1;
+    LAMPS.push({ x: w.cx + w.ax.x * s * 1.3, y: w.cy + w.ax.y * s * 1.3, r: 2.5, a: .4, fl: 0, moon: 1 });
+  }
   LAMPS.forEach(L => L.room = room[I(L.x | 0, L.y | 0)]);
+  OUTMASK = 0; for (let r = 1; r <= NR; r++) if (ROOMS[r] && ROOMS[r].out) OUTMASK |= 1 << r;
+  WEATHER = def.weather || '';
   // Startpunkte: s = erster Survivor, ss = alle drei, k = Killer
   SPAWNS = (def.spawns || []).map(sp => {
     const ss = sp.survivors || (Array.isArray(sp.s[0]) ? sp.s : [sp.s]);

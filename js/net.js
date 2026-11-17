@@ -1,7 +1,7 @@
 'use strict';
-/* Dead Mobile – Netz: Räume mit bis zu 3 Spielern. Transport über PeerJS (WebRTC, wird erst bei Bedarf geladen)
+/* Dead Mobile – Netz: Räume mit bis zu 4 Spielern (3 Überlebende + 1 Killer). Transport über PeerJS (WebRTC, wird erst bei Bedarf geladen)
    oder BroadcastChannel (?net=local: mehrere Tabs im selben Browser, für Tests). Eigener PeerJS-Server: ?peer=host:port
-   Stern: Clients reden nur mit dem Host (ID 0), der vergibt die IDs 1 und 2. Nachrichten = JSON-Objekte mit Typ t.
+   Stern: Clients reden nur mit dem Host (ID 0), der vergibt die IDs 1 bis 3. Nachrichten = JSON-Objekte mit Typ t.
    API:  Net.host(ich) → Promise<code>        Net.join(code, ich) → Promise<meineId>     ich = { name, skin }
          Net.send(msg, an?)  Host: an alle Clients | an = ID | an = [IDs];  Client: immer an den Host
          Net.on(t, fn(msg, von)) / Net.off(t, fn)    Net.leave()
@@ -11,7 +11,7 @@
    Spiel-Haken für die Synchronisierung: Net.onGameStart(fn(info)), Net.onGameEnd(fn(grund)) – geben eine Abmeldefunktion zurück.
    Reservierte Typen (nicht selbst senden): hello welcome reject peers ping bye ~ join leave close */
 const Net = (() => {
-  const PROTO = 1, MAXP = 3, PREFIX = 'deadmobile-', ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const PROTO = 2, MAXP = 4, PREFIX = 'deadmobile-', ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
   const LIBS = ['https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js', 'https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js'];
   const URLP = new URLSearchParams(location.search);
   const LOCAL = URLP.get('net') === 'local';
@@ -21,7 +21,7 @@ const Net = (() => {
     offline: 'Online-Spiel nicht verfügbar (keine Internetverbindung?)',
     browser: 'Dein Browser unterstützt kein Online-Spiel.',
     notfound: 'Raum nicht gefunden',
-    full: 'Raum ist voll (max. 3)',
+    full: 'Raum ist voll (max. 4)',
     running: 'In diesem Raum läuft gerade ein Spiel.',
     version: 'Andere Spielversion – bitte beide neu laden.',
     timeout: 'Zeitüberschreitung – der Raum antwortet nicht.',

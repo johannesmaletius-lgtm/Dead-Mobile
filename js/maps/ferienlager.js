@@ -1,7 +1,7 @@
 'use strict';
 /* Karte: Ferienlager (Team-Modus) – entworfen mit ChatGPT, geprüft mit tools/mapcheck.js */
 MAPS["ferienlager"] = {
-  name: "Ferienlager", team: true, need: 6,
+  name: "Ferienlager", team: true, need: 6, weather: 'fog',
   grid: [
     "TTTTTTTTEETTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
     "T..............................................................T",

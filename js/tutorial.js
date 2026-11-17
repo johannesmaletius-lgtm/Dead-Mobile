@@ -57,7 +57,7 @@ const TSTEPS = [
 ];
 function startTutorial() {
   A.init();
-  useMap('schule'); MODE = 'solo';
+  useMap('schule'); MODE = 'solo'; ROLE = 'surv';
   resetWorld(); endWon = false; toastMsg = null;
   S = newSurv(27.5, 12.5, { skin: save.skin || 'cop' }); S.dir = 0; SV = [S]; K = newKiller(40.5, 27.5); K.ctl = ctlIdle;
   resetStats();
@@ -84,7 +84,7 @@ function tutUpdate(dt) {
 }
 function finishTutorial() { save.tut = 1; persist(); startGame(); }
 function demoInit() {
-  resetWorld();
+  resetWorld(); ROLE = 'surv';
   S = newSurv(-50, -50); S.ghost = true; SV = [S];
   K = newKiller(34.5, 19.5);
   cam.x = K.x; cam.y = K.y;

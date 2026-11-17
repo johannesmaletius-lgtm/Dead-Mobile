@@ -1,7 +1,7 @@
 'use strict';
 /* Karte: Krankenhaus (Team-Modus) – entworfen mit ChatGPT, geprüft mit tools/mapcheck.js */
 MAPS["krankenhaus"] = {
-  name: "Krankenhaus", team: true, need: 6,
+  name: "Krankenhaus", team: true, need: 6, weather: 'rain',
   grid: [
     "TTTTTTTEETTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
     "T..............................................................T",

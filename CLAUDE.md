@@ -20,14 +20,15 @@ Plan und Spielregeln für den Mehrspieler-Ausbau: `docs/PLAN.md`. Kartenformat: 
 | `js/tutorial.js` | Spielbares Tutorial (Schritte `TSTEPS`) |
 | `js/survivor.js` | Eingabe lesen, Survivor-Bewegung, Aktionen (Palette, Fenster, Spind) |
 | `js/tasks.js` | Aufgaben + Quick-Time-Events (Aggregat, Sicherung, Funk, Ventil) |
-| `js/killer.js` | Killer-KI (Sicht, Patrouille, Suche, Verfolgung, Ausfallschritt, Lärm) |
+| `js/killer.js` | Killer-KI (Sicht, Patrouille, Suche, Verfolgung, Ausfallschritt, Lärm), Wirkungen `kKick` `kLockerOpen` `kBreakDone` |
+| `js/kplayer.js` | Gespielter Killer: Steuerung, Jagd-Erkennung, Aktionen, Instinkt, Killer-HUD, Endbildschirm, `buzz()` (Haptik) |
 | `js/flow.js` | Treffer, Erwischt-/Haken-Sequenz, Sieg, Endbildschirm, `step()` (Welt-Update), Kamera |
 | `js/rules.js` | Team-Regeln: Boden, Tragen, Haken, Retten, Heilen, Zappeln, Duo, Killer-Teamteil, Team-Ende, Zuschauen |
 | `js/bots.js` | Bots (`Bots`): KI-Überlebende für freie Plätze – Flucht, Ausweichen, Team-Plan (retten, heilen, Duo, Aufgaben, Tor) |
 | `js/render.js` | Canvas-Setup, Grundformen, Boden vorzeichnen, Raum-Pfade fürs Licht |
 | `js/figures.js` | Figuren zeichnen: Skins `SKINS` (`cop`, `medic`, `janitor`), `SKIN_NAMES`, Killer, `skinPortrait(skin, px)`; Vorschau `tools/skins.html` |
 | `js/tiles.js` | Kacheln zeichnen (Wände, Möbel, Aufgaben, Paletten, Tore, Auto) |
-| `js/light.js` | Licht, Leuchten, `render()` setzt das Bild zusammen |
+| `js/light.js` | Licht (Lichtkegel mit Schatten, Mondlicht, Blitze), Wetter (Regen, Nebel), Leuchten, `render()` setzt das Bild zusammen |
 | `js/hud.js` | Bildschirm-Ebenen, HUD, Aktionsknopf, QTE-Anzeige |
 | `js/net.js` | Netz: Räume, Spieler-IDs, Nachrichten (`Net`), Transport PeerJS bzw. BroadcastChannel |
 | `js/lobby.js` | Team-Menü und Lobby (`Lobby`): Name, Figur, Bots, Raum erstellen/beitreten, Start |
@@ -35,8 +36,9 @@ Plan und Spielregeln für den Mehrspieler-Ausbau: `docs/PLAN.md`. Kartenformat: 
 | `js/main.js` | Eingabe (Touch/Tastatur), Bildschirme, Start, Spielschleife, Test-API `window.__ns` |
 
 ## Mehrere Überlebende
-- `SV` = alle Survivors, `S` = der eigene (Eingabe, Kamera, HUD), `MODE` = `'solo'` | `'team'`.
-  `startGame()` = Solo (unverändert), `startTeam(mapId, roster, spawnIdx?)` = Team mit 3 Plätzen (Bots füllen auf; `spawnIdx` online vom Host).
+- `SV` = alle Survivors, `S` = der eigene (Eingabe, Kamera, HUD), `MODE` = `'solo'` | `'team'`, `ROLE` = `'surv'` | `'killer'`.
+  `startGame()` = Solo (unverändert), `startTeam(mapId, roster, spawnIdx?, opt?)` = Team mit 3 Plätzen (Bots füllen auf; `spawnIdx` online vom Host;
+  `opt.killer` = `'local'` | `'remote'` für einen gespielten Killer, siehe unten).
 - Fremde Survivors laufen über `updateOther(sv, dt)` → `sv.ctl(sv, dt)` (Bot-KI bzw. Netz setzt das).
 - Bewegung für beliebige Figuren: `goTo(e, x, y, spd, dt)` (A*, springt/zerbricht), `moveAgent`,
   `survMove(sv, inp, dt)`, `survMoved(sv, md, dt)` (Spuren, Blut, Tor). Aktionen nehmen den Survivor als
@@ -65,6 +67,33 @@ Alles wirkt nur mit `MODE === 'team'`. Kopfkommentar in `js/rules.js` = vollstä
   mit `--map <id>` kartenunabhängig (alle Haken, Paletten-Stuns beim Tragen, Tore, Duo, Dauerlauf mit freier Killer-KI).
   Der Test schaltet die Bots ab (`Bots.on = false`) und steuert die anderen Survivors selbst.
 
+## Gespielter Killer (`js/kplayer.js`)
+- Start: Titel → **Killer** bzw. Team-Menü → „Als Killer spielen" (`Lobby.playKiller()`, offline gegen 3 Bots) oder online in der Lobby
+  (der Host wählt unter „Killer" die KI oder einen Spieler). `startTeam(map, roster, spawn, { killer: 'local' | 'remote', killerId, killerName })`.
+- `ROLE === 'killer'`: Ich steuere den Killer. `S` ist dann nur ein Platzhalter (Geist außerhalb der Karte, **nicht** in `SV`),
+  `viewer()` liefert `K` (darum hat `K` Felder wie `hp`, `hidden`, `out`). `K.human` = `'local'` (hier gesteuert) | `'remote'` (Mitspieler) | `null` (KI).
+- `updateKiller` → `killerPlayer(dt)` statt KI. `kPerceive(dt)` hält `K.mode` (`patrol`/`chase`/`carry`), `K.target`, `K.aware`, `K.blood`
+  wie bei der KI aktuell (Bots, Musik und Netz lesen sie): Jagd beginnt bei Sichtkontakt (`killerSees`), endet `CFG.loseAfter` s danach.
+- Eingabe (`js/main.js`): Hauptknopf/Leertaste `kDo('main')` = Angriff (Ausfallschritt mit Zielhilfe, `K.aim`) bzw. beim Tragen Aufhängen;
+  Zweitknopf/E `kDo('alt')` = Aufheben, Palette zerbrechen, Fenster, Spind durchsuchen, Aufgabe treten (`kActions()` → `kStart(a)`);
+  Drittknopf/Q `kInstinct()` zeigt kurz Überlebende im Umkreis (`kReveal`, nicht im Spind; die Entdeckten werden gewarnt).
+- Hinweise für den Killer: Lärm (`noise()` → `kHear`) als Pfeil und Ring, frische Kratzspuren leuchten (`drawKillerSense`), Pfeile zu
+  angefangenen Aufgaben, Liegenden, Hängenden und – beim Tragen – freien Haken (`killerHUD`).
+- Regeln nur beim gespielten Killer: kein Camping-Schutz der KI, dafür läuft die Haken-Zeit langsamer (`CFG.campSlow`), solange er ohne
+  Jagd näher als `CFG.campR` am Haken steht (`sv.camped`). Die 40-s-Regel gilt nur für die KI.
+- Ende: `showTeamEnd()` → `showKillerEnd()` (Opfer, Wertung). Stellschrauben in `CFG` (`kpSpeed` … `campSlow`).
+- Test: `NODE_PATH="$(npm root -g)" node tools/killertest.js [bildordner]` (Szenarien) und `--sim 10 [--maps …]`: ein Autopilot spielt
+  den Killer über die Eingabe ganze Partien gegen die Bots (Statistik: Opfer je Karte, Hänger).
+
+## Endspiel, Schwierigkeit, Extras
+- **Endspiel-Timer** (nur Team): Sind die Tore offen, läuft `collapseAt` (`CFG.collapse` s). Danach holt es alle, die noch drin sind
+  (`killSurv(v, 'collapse')`). Anzeige statt der Punkte (`pointsLabel`), im Schnappschuss als Restzeit (`eg`).
+- **Schwierigkeit der Killer-KI**: `DIFFS` (Leicht/Normal/Schwer), `save.diff`, `diff()` → Tempo, Aufmerksamkeit, Sichtweite. Tutorial und
+  `#test` immer Normal. Knopf auf dem Titel (`#diffBtn`).
+- **Haptik** `buzz(ms)` (Treffer, Betäubung, verpatzte Skill-Checks), **Vollbild** `#fsT`, Jagdmusik nur für den Gejagten (andere leise in der Nähe).
+- **Wetter** je Karte: `MAPS[id].weather` = `'rain'` (Regen, Gewitter mit `lightning()`) | `'fog'` (Nebel, Glühwürmchen). Zeitplan aus `T` und
+  `hash` (kein `Math.random` im Zeichnen neuer Effekte). **Licht**: `conePath()` wirft Schatten an hohen Kacheln (`TALL`), farbiges Licht über `gcv`.
+
 ## Bots (Phase 3, `js/bots.js`)
 - `startTeam` ruft `Bots.attach()`: jeder Platz mit `kind: 'bot'` bekommt `sv.bot` (Gedächtnis) und `sv.ctl = Bots.think`.
   `Bots.give(sv)` macht nachträglich einen Bot aus einer Figur (Mitspieler geht), `Bots.on = false` schaltet sie ab (Tests).
@@ -82,12 +111,13 @@ Alles wirkt nur mit `MODE === 'team'`. Kopfkommentar in `js/rules.js` = vollstä
   Ziel je Karte: Fluchtquote 30–60 %, ⌀ Dauer 4–9 min, Duo meist erledigt, kein Hängenbleiben (Exit-Code 1).
 - `updateSurv` reicht an `updateOther` weiter, wenn `S` kein lokaler Spieler ist (nur in der Simulation).
 ## Netz & Lobby (`js/net.js`, `js/lobby.js`)
-- Titel → **Team**: Name (`save.name`), Figur (`save.skin`), „Mit Bots spielen" (offline), „Raum erstellen",
-  Code + „Beitreten". Raum: Code (4 Buchstaben ohne I/O, Peer-ID `deadmobile-CODE`), 3 Plätze (leer = Bot),
-  Kartenwahl (alle `MAPS` mit `team: true`, `save.map`), „Starten" nur beim Host. Einladungslink `?join=CODE`.
+- Titel → **Team**: Name (`save.name`), Figur (`save.skin`), „Mit Bots spielen" / „Als Killer spielen" (offline), „Raum erstellen",
+  Code + „Beitreten". Raum: Code (4 Buchstaben ohne I/O, Peer-ID `deadmobile-CODE`), bis zu 4 Spieler: 3 Plätze für Überlebende
+  (leer = Bot) und der Killer (KI oder ein Spieler, `roomKiller`; zu viert muss einer der Killer sein). Kartenwahl (alle `MAPS` mit
+  `team: true`, `save.map`), „Starten" nur beim Host. Einladungslink `?join=CODE`.
 - Transport: PeerJS 1.5.5 (erst bei Bedarf von unpkg, sonst jsDelivr), zuverlässiger Kanal, `json`.
   `?peer=host:port` = eigener Signalserver (unverschlüsselt, Pfad `/`). `?net=local` = BroadcastChannel (Tabs im selben Browser).
-- Stern: Host = ID 0, vergibt 1 und 2; Clients reden nur mit dem Host. Herzschlag 1/s, nach 6,5 s Stille „Verbindung verloren".
+- Stern: Host = ID 0, vergibt 1 bis 3; Clients reden nur mit dem Host. Herzschlag 1/s, nach 6,5 s Stille „Verbindung verloren".
 - API: `Net.host({name, skin})` → Code, `Net.join(code, {name, skin})` → meine ID, `Net.send(msg, an?)` (Host: alle |
   ID | [IDs]; Client: an den Host), `Net.on(t, fn(msg, von))`, `Net.off`, `Net.leave()`. Zustand: `Net.isHost`,
   `Net.myId`, `Net.code`, `Net.peers` (alle im Raum inkl. mir: `{id, name, skin}`), `Net.active`, `Net.phase`
@@ -96,8 +126,9 @@ Alles wirkt nur mit `MODE === 'team'`. Kopfkommentar in `js/rules.js` = vollstä
   `Net.onGameEnd(fn(grund))` mit `back` (Host zurück in die Lobby), `left` (selbst verlassen), `hostleft`, `lost`.
   Beide geben eine Abmeldefunktion zurück. Nachrichten > 4000 Zeichen werden automatisch gestückelt.
 - Nachrichtentypen: intern `hello` `welcome` `reject` `peers` `ping` `bye` `~` (reserviert, nicht selbst senden);
-  Lobby `lobby {map}`, `start {map, spawn, roster:[{id, name, skin, human}]}`, `back`. Alle rufen
-  `startTeam(map, roster, spawn)`; im Roster ist der eigene Eintrag `local`, andere Menschen `remote`, freie Plätze `bot`.
+  Lobby `lobby {map, killer}`, `start {map, spawn, roster:[{id, name, skin, human}], killer, kname}`, `back`. Alle rufen
+  `startTeam(map, roster, spawn, opt)`; im Roster ist der eigene Eintrag `local`, andere Menschen `remote`, freie Plätze `bot`
+  (Bots bekommen IDs, die kein Spieler hat). `killer` = ID des Killer-Spielers oder −1 (KI).
 - Im Team-Spiel: Pause zeigt „Zum Menü" bzw. online „Raum verlassen" statt Neustart; „Nochmal" bleibt im Team
   (online: alle zurück in den Raum). Host weg → Meldung auf dem Titel.
 
@@ -116,6 +147,11 @@ Alles wirkt nur mit `MODE === 'team'`. Kopfkommentar in `js/rules.js` = vollstä
 - Schnappschüsse sind Felder fester Reihenfolge (`snapshot()` ↔ `onSnap()`); Zeiten als Restdauer, weil jede Seite ihr eigenes `T` hat.
 - Pause ist online nur eine Überlagerung (`netPaused`, `netPause()` in `js/main.js`), niemand hält das Spiel an. Im
   Hintergrund-Tab treibt ein Worker-Taktgeber die Simulation weiter (`bgFrame()`), damit der Host nicht einfriert.
+- **Gespielter Killer online:** Ist es der Host, bleibt alles wie bei der KI (er ist maßgeblich; `kReveal`/`kLockerOpen` gehen als `fx` raus).
+  Ist es ein Client, bestimmt er Position und Ablauf seiner Aktionen selbst (`kc`-Strom → `K.rnet`, `killerStream`) und meldet die
+  Wirkungen als `ke` (`hit` `pick` `hook` `brk` `kick` `lock` `inst`); der Host prüft sie und führt sie aus. `kPerceive` rechnet der Host.
+  Greift der Host in den Killer ein (Treffer, `kstun` durch eine Palette), gilt dessen Strom erst wieder, wenn er das Ereignis kennt (`minEv`).
+  Geht der Killer-Spieler, übernimmt die KI.
 - Mitspieler weg (`Net.on('leave')`) → beim Host übernimmt ein Bot. „Ergebnis" beim Zuschauen (`teamGiveUp`): beim Client
   endet nur die eigene Ansicht, beim Host erst, wenn kein Mitspieler mehr im Spiel ist. Kein Wiedereinstieg mitten im Spiel.
 
@@ -130,21 +166,27 @@ macht aus einer ChatGPT-Antwort (Format: `docs/KARTEN.md`) eine Kartendatei; dan
 - Keine globalen Namen, die mit `window`-Eigenschaften kollidieren (`name`, `status`, `top`, `parent` …).
 - Stil beibehalten: kompakt, deutsche Kommentare und Spieltexte, Einheiten in Kacheln, Zeit in Sekunden.
   Die Simulation läuft fest mit 60 Hz in `step(dt)`, gezeichnet wird nur in `render()`.
-- **Solo-Modus und Tutorial dürfen sich nicht verändern.** Vor jedem Commit den Regressionstest laufen lassen.
+- **Solo-Modus und Tutorial dürfen sich im Ablauf nicht verändern.** Vor jedem Commit den Regressionstest laufen lassen: Die Zustände
+  müssen identisch bleiben; Pixel dürfen nur abweichen, wenn die Grafik absichtlich geändert wurde.
+- Zeichnen darf den Spielzufall nicht verschieben: neue Effekte nehmen `hash(...)`/`T` statt `Math.random()`.
 
 ## Testen
 ```bash
 # Ablauf + Screenshots + Fehler:
 NODE_PATH="$(npm root -g)" node tools/regress.js index.html /tmp/bilder
-# Vergleich mit dem letzten Commit (Solo/Tutorial müssen IDENTISCH bleiben):
+# Vergleich mit dem letzten Commit (Zustände von Solo/Tutorial müssen identisch bleiben: keine Zeile „ZUSTAND ANDERS"):
 git worktree add /tmp/alt HEAD && NODE_PATH="$(npm root -g)" node tools/regress.js /tmp/alt/index.html index.html
 ```
-Netz und Lobby (a: BroadcastChannel, b: echtes PeerJS mit lokalem Signalserver, c: offline mit Bots, d: Synchronisierung im Spiel):
+Netz und Lobby (a: BroadcastChannel, b: echtes PeerJS mit lokalem Signalserver, c: offline mit Bots, d: Synchronisierung im Spiel,
+e: gespielter Killer online – als Client und als Host):
 ```bash
 # <deps> enthält node_modules/peer (Server) und node_modules/peerjs; ohne --peer wird b übersprungen
 NODE_PATH="$(npm root -g)" node tools/nettest.js index.html --peer <deps> [--shots /tmp/netz] [--fonts <ordner>] [--only a,c]
 # Bots: 3 Bots allein gegen den Killer, Statistik je Karte
 NODE_PATH="$(npm root -g)" node tools/botsim.js --n 30
+# Gespielter Killer: Szenarien bzw. Autopilot gegen die Bots
+NODE_PATH="$(npm root -g)" node tools/killertest.js [bildordner]
+NODE_PATH="$(npm root -g)" node tools/killertest.js --sim 10
 ```
 Mit `#test` in der URL wird nichts gespeichert. `window.__ns` ist die Test-API (`startGame`, `tick(sek)`,
 `tp`, `ktp`, `finish`, `caught`, `down`/`up`, `keys` …). Feste Zufallszahlen und eine abgeschaltete

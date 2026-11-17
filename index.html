@@ -1,4 +1,6 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html>
+<html lang="de">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#06070c">
@@ -14,6 +16,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cabin+Sketch:wght@700&family=Special+Elite&display=swap">
 <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
 
 <canvas id="c" aria-label="Spielfeld"></canvas>
 <div id="safe"></div>
@@ -37,9 +41,11 @@
   <h1 class="logo">Dead <span class="red">Mobile</span></h1>
   <svg class="smear" viewBox="0 0 440 34" aria-hidden="true"><path d="M8 12c60 14 140 20 214 16 76-4 150-14 210-24-40 16-92 26-150 30-80 6-170 2-274-22z" fill="#c3121f"/><path d="M60 22c20 2 26 8 24 12M300 25c4 3 5 6 4 9" stroke="#8e0f16" stroke-width="3" fill="none" stroke-linecap="round"/></svg>
   <button id="play" class="btn" aria-label="Spielen"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
-  <div class="row"><button id="tutBtn" class="pill">Tutorial</button><button id="teamBtn" class="pill">Team</button></div>
+  <div class="row"><button id="tutBtn" class="pill">Tutorial</button><button id="teamBtn" class="pill">Team</button><button id="killBtn" class="pill blood">Killer</button></div>
   <div id="best" class="best" hidden></div>
+  <button id="diffBtn" class="pill small" aria-label="Schwierigkeit der Killer-KI ändern"></button>
   <button id="sndT" class="rnd" aria-label="Ton an oder aus"></button>
+  <button id="fsT" class="rnd" hidden aria-label="Vollbild an oder aus"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
 </section>
 
 <section id="pause" class="screen" hidden>
@@ -82,6 +88,7 @@
     <div class="panel acts">
       <div id="tMaps" class="maps" hidden></div>
       <button id="tBots" class="pill gold">Mit Bots spielen</button>
+      <button id="tKill" class="pill blood">Als Killer spielen</button>
       <button id="tHost" class="pill">Raum erstellen</button>
       <div class="or"><span>oder beitreten</span></div>
       <div class="joinrow">
@@ -104,6 +111,8 @@
       <p id="rHint" class="hint"></p>
       <div class="lbl">Karte</div>
       <div id="rMaps" class="maps"></div>
+      <div class="lbl">Killer</div>
+      <div id="rKiller" class="maps"></div>
     </div>
     <div class="panel rplay">
       <div class="lbl">Spieler <span id="rCount"></span></div>
@@ -127,6 +136,7 @@
 <script src="js/survivor.js"></script>
 <script src="js/tasks.js"></script>
 <script src="js/killer.js"></script>
+<script src="js/kplayer.js"></script>
 <script src="js/flow.js"></script>
 <script src="js/rules.js"></script>
 <script src="js/bots.js"></script>

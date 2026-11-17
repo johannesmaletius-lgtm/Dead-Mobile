@@ -32,7 +32,15 @@ const CFG = {
   crawl: .9, carryV: 3.6, pickT: 1, hookT: .9, hookStage: 30, unhookT: 1.2, unhookBurst: 1.5, unhookR: 1.3,
   healInj: 12, healDown: 10, healR: 1.25, wiggleN: 66, wiggleStun: 2, wiggleBurst: 1.2,
   loopDrop: 40, ignoreT: 20, ignoreNear: 2, antiCamp: 12, duoTime: 20, botSkill: .85,
+  kickDmg: .15,
+  // Gespielter Killer (js/kplayer.js)
+  kpSpeed: 4.4, kpRoam: 4.4, kpWalk: .55, kpTurn: 2.6, kpAssist: .75, kpAssistR: 3.4, instR: 15, instCd: 28, instShow: 3.2, hearShow: 4,
+  campR: 5.5, campSlow: .45,
+  // Endspiel (Team): so lange bleiben die Tore offen, danach holt es alle, die noch drin sind
+  collapse: 150,
 };
+/* Schwierigkeit der Killer-KI (save.diff, Standard 1 = Normal): Tempo, Aufmerksamkeit, Sichtweite. Im Tutorial immer Normal. */
+const DIFFS = [{ name: 'Leicht', spd: .92, aware: .7, view: .88 }, { name: 'Normal', spd: 1, aware: 1, view: 1 }, { name: 'Schwer', spd: 1.06, aware: 1.35, view: 1.12 }];
 
 /* Kartenregister: js/maps/*.js tragen sich hier ein (MAPS[id] = {...}), js/map.js lädt sie */
 const MAPS = {};

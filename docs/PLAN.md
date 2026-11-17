@@ -26,7 +26,7 @@ Parallele Agenten arbeiten in eigenen Git-Worktrees; der Koordinator prüft und 
 
 **Solo-Modus und Tutorial bleiben exakt wie bisher** (1 Survivor, Schule, 2. Treffer = Haken-Sequenz).
 
-- **Spieler:** 3 Überlebende, Menschen + Bots füllen auf. Killer ist immer KI.
+- **Spieler:** 3 Überlebende, Menschen + Bots füllen auf. Der Killer ist die KI oder ein Spieler (siehe „Gespielter Killer").
 - **Zustände:** gesund (2) → verletzt (1) → am Boden (0, kriecht 0,9 Kacheln/s, keine Aktionen)
   → getragen → am Haken → tot. Dazu: entkommen.
 - **Heilen:** neben verletztem oder liegendem Teamkollegen Aktion halten. Verletzt→gesund 12 s,
@@ -54,10 +54,19 @@ Parallele Agenten arbeiten in eigenen Git-Worktrees; der Koordinator prüft und 
 - **Skins:** Polizist (blau, Mütze), Sanitäterin (rot, Reflexstreifen, Pferdeschwanz), Hausmeister
   (oliv Latzhose, orange Strickmütze, Bart). Jeder Spieler wählt einen; Bots nehmen die übrigen.
 
+## Gespielter Killer (umgesetzt, `js/kplayer.js`)
+
+- Offline gegen drei Bots oder online als vierter Spieler bzw. anstelle eines Überlebenden (der Host teilt die Rolle zu).
+- Tempo 4,4 Kacheln/s (Tragen 3,6), Blutrausch wie bei der KI. Angriff = Ausfallschritt mit leichter Zielhilfe; daneben 1,15 s Erholung.
+- Aktionen: Aufheben, Aufhängen, Palette zerbrechen, Fenster, Spind durchsuchen, Aufgabe treten (−15 %).
+- Instinkt: zeigt 3 s lang, wo Überlebende im Umkreis von 15 Kacheln gerade stehen (nicht im Spind), 28 s Abklingzeit; die Entdeckten werden gewarnt.
+- Statt der KI-Regeln (kein Camping, 40-s-Regel): Lauert er ohne Jagd näher als 5,5 Kacheln am Haken, läuft die Haken-Zeit nur mit 45 %.
+- **Endspiel:** Sind die Tore offen, bleiben 150 s; danach sterben alle, die noch drin sind (gilt im ganzen Team-Modus).
+
 ## Netz-Architektur (für Agent „Netz")
 
 - **PeerJS** (MIT) wird nur bei Bedarf vom CDN geladen. Raum-ID `deadmobile-XXXX` (4 Buchstaben ohne
-  Verwechsler), max. 3 Spieler. Test-Transport über `BroadcastChannel` (`?net=local` in der URL, mehrere Tabs).
+  Verwechsler), max. 4 Spieler (3 Überlebende + 1 Killer). Test-Transport über `BroadcastChannel` (`?net=local` in der URL, mehrere Tabs).
 - **Host ist maßgeblich:** Er simuliert Killer, Bots, Welt und alle Zustände.
 - **Clients bestimmen nur:** die eigene Position/Richtung/Animation und eigene QTEs. Sie senden 20×/s
   ihren Zustand und Ereignisse (Palette, Fenster, Spind, Lärm, Aufgabenfortschritt, Heilen/Retten, Zappeln).

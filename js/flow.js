@@ -3,6 +3,7 @@
 /* ================= Treffer / Erwischt / Haken ================= */
 function hitSurvivor(sv = S) {
   if (state !== 'play') return;
+  K.hits++; if (sv === S || ROLE === 'killer') buzz(sv === S ? 90 : 40);
   if (sv.hp <= 1 && !TUT) { if (MODE === 'team') downSurv(sv); else caught(sv); return; }
   const wasHurt = sv.hp <= 1;
   if (MODE === 'team') { clearInteract(sv); K.hunt.t = 0; }
@@ -87,7 +88,7 @@ function shake(v) { cam.sh = Math.max(cam.sh, REDUCED ? v * .25 : v); }
 function step(dt) {
   if (slowT > 0) { slowT -= dt; dt *= .3; }
   T += dt;
-  if (state === 'play' && K && K.mode === 'chase' && (MODE !== 'team' || K.target === S)) stats.chase += dt;
+  if (state === 'play' && K && K.mode === 'chase' && (MODE !== 'team' || K.target === S || ROLE === 'killer')) stats.chase += dt;
   if (state === 'play') {
     updateSurv(dt);
     if (SV.length > 1) for (const sv of SV) if (sv !== S) updateOther(sv, dt);
@@ -95,7 +96,7 @@ function step(dt) {
     if (state === 'play') updateKiller(dt);
     if (state === 'play' && MODE === 'team') teamStep(dt);
     if (state === 'play' && TUT) tutUpdate(dt);
-    actNow = state === 'play' ? computeAction() : null;
+    actNow = state === 'play' && ROLE !== 'killer' ? computeAction() : null;
   } else if (state === 'caught') updateSeq(dt);
   else if (state === 'won') {
     seq.t += dt; const g = seq.g;
@@ -138,7 +139,8 @@ function updateCamera(dt) {
     tx = V.x; ty = V.y - .4;
     if (V.work || (V === S && S.heal)) { const portrait = VH > VW; ty += portrait ? 2.2 : 1.6; }
     if (K.mode === 'chase' && state === 'play') tz = .9;
-    if (MODE === 'team' && state === 'play') { if (V.hung) { ty -= 1.6; tz = 1.25; } else if (V.hp <= 0 && !V.out) tz = 1.12; }
+    if (ROLE === 'killer') tz = K.mode === 'chase' ? .88 : .93;
+    else if (MODE === 'team' && state === 'play') { if (V.hung) { ty -= 1.6; tz = 1.25; } else if (V.hp <= 0 && !V.out) tz = 1.12; }
   }
   const k = 1 - Math.exp(-dt * (state === 'caught' ? 3 : 6));
   cam.x = lerp(cam.x, tx, k); cam.y = lerp(cam.y, ty, k); cam.z = lerp(cam.z, tz, 1 - Math.exp(-dt * 2.5));
@@ -150,7 +152,7 @@ function updateCamera(dt) {
 }
 function updateHeart(dt) {
   const V = viewer();
-  if (state === 'play' && V && !V.ghost) {
+  if (state === 'play' && V && !V.ghost && ROLE !== 'killer') {
     const d = hyp(V.x - K.x, V.y - K.y);
     terror = clamp(1 - (d - 2) / 12, 0, 1);
     if (terror > 0 && T >= hbNext) { SFX.heart(.25 + .75 * terror); hbPulse = 1; hbNext = T + lerp(1.15, .42, terror); }

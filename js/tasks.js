@@ -92,7 +92,7 @@ function fail(t, pen) {
   ({ gen: SFX.bang, fuse: SFX.spark, radio: SFX.staticB, valve: SFX.steam, duo: SFX.spark })[t.type]();
   const col = t.type === 'valve' ? '215,220,225' : t.type === 'radio' ? '160,190,255' : '255,200,90';
   for (let i = 0; i < 26; i++) parts.push({ x: t.cx, y: t.cy, z: .5, vx: rand(-3, 3), vy: rand(-2, 2), vz: rand(1, 4), g: t.type === 'valve' ? -.5 : 9, life: rand(.3, .8), max: .8, col, sz: t.type === 'valve' ? .12 : .05, fade: t.type === 'valve' ? 1 : 0 });
-  shake(.4); S.flinch = .45; flash = .35; flashCol = '255,120,40';
+  shake(.4); S.flinch = .45; flash = .35; flashCol = '255,120,40'; buzz(60);
   eyeT = T; stats.fails++;
   noise(t.cx, t.cy, 99, true);
 }
@@ -104,5 +104,5 @@ function complete(t, sv = S) {
   for (let i = 0; i < 20; i++) parts.push({ x: t.cx, y: t.cy, z: .6, vx: rand(-1.2, 1.2), vy: rand(-1, 1), vz: rand(1, 3), g: 3, life: rand(.5, 1), max: 1, col: '255,225,140', sz: .05 });
   if (t.type === 'gen') noise(t.cx, t.cy, 16, false);
   // Genug Punkte (Duo zählt doppelt) → Tore bekommen Strom
-  if (!endgame && taskPoints() >= NEED) { endgame = true; gatesPowered = true; SFX.siren(); noise(sv.x, sv.y, 99, true); }
+  if (!endgame && taskPoints() >= NEED) { endgame = true; gatesPowered = true; SFX.siren(); noise(sv.x, sv.y, 99, true); if (MODE === 'team') collapseAt = T + CFG.collapse; }
 }

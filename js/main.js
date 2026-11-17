@@ -4,7 +4,7 @@
 function hitAct(x, y) { const b = actBtn(); return hyp(x - b.x, y - b.y) < b.r + 22; }
 function hitArrow(x, y) { for (const b of arrowPad()) if (hyp(x - b.x, y - b.y) < 36) return b.d; return -1; }
 const ptr = new Map();
-function actionDown() { if (state !== 'play' || netPaused) return; actHeld = true; if (Q) { qteDown(); return; } doAction(); }
+function actionDown() { if (state !== 'play' || netPaused) return; if (ROLE === 'killer') { kDo('main'); return; } actHeld = true; if (Q) { qteDown(); return; } doAction(); }
 function actionUp() { actHeld = false; qteUp(); }
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
@@ -12,6 +12,11 @@ cv.addEventListener('pointerdown', e => {
   A.init();
   if (state !== 'play' || netPaused) return;
   const x = e.clientX, y = e.clientY;
+  if (ROLE === 'killer') {   // Killer: Angriff, Aktion, Instinkt – sonst links der Joystick
+    if (K.acts && K.acts.alt && hitBtn(altBtn(), x, y)) { ptr.set(e.pointerId, 'kbtn'); kDo('alt'); return; }
+    if (hitBtn(powBtn(), x, y, 12)) { ptr.set(e.pointerId, 'kbtn'); kInstinct(); return; }
+    if (hitAct(x, y)) { ptr.set(e.pointerId, 'kbtn'); kDo('main'); return; }
+  }
   if (Q && Q.type === 'radio') { const d = hitArrow(x, y); if (d >= 0) { qteArrow(d); ptr.set(e.pointerId, 'arrow'); return; } }
   if (hitAct(x, y) && !(Q && Q.type === 'radio')) { ptr.set(e.pointerId, 'act'); actionDown(); return; }
   if (x < VW * .5 && joy.id === null) { joy.id = e.pointerId; joy.bx = joy.x = x; joy.by = joy.y = y; ptr.set(e.pointerId, 'joy'); try { cv.setPointerCapture(e.pointerId); } catch (er) {} return; }
@@ -42,6 +47,10 @@ window.addEventListener('keydown', e => {
     keys[k] = 1; return;
   }
   if (e.key === 'Shift') keys.shift = 1;
+  if (ROLE === 'killer' && !e.repeat) {
+    if (e.code === 'KeyE' || e.code === 'KeyF') { e.preventDefault(); A.init(); kDo('alt'); return; }
+    if (e.code === 'KeyQ' || e.code === 'KeyR') { e.preventDefault(); A.init(); kInstinct(); return; }
+  }
   if ((e.code === 'Space' || e.code === 'KeyE' || e.code === 'Enter') && !e.repeat) { e.preventDefault(); A.init(); actionDown(); }
 });
 window.addEventListener('keyup', e => {
@@ -74,6 +83,7 @@ function restartPressed() { if (MODE === 'team') Lobby.restart(); else startGame
 $('#play').addEventListener('click', playPressed);
 $('#tutBtn').addEventListener('click', startTutorial);
 $('#teamBtn').addEventListener('click', () => { A.init(); Lobby.open(); });
+$('#killBtn').addEventListener('click', () => { A.init(); Lobby.playKiller(); });
 $('#tutSkip').addEventListener('click', finishTutorial);
 $('#tutGo').addEventListener('click', finishTutorial);
 $('#again').addEventListener('click', againPressed);
@@ -83,7 +93,22 @@ $('#pauseBtn').addEventListener('click', pauseGame);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { last = performance.now(); return; } if (online()) dropInput(); else pauseGame(); });
 function showTitle() {
   if (save.best) { const b = $('#best'); b.hidden = false; b.innerHTML = gateSvg + fmt(save.best); }
-  sndUI();
+  sndUI(); diffUI();
+}
+/* Schwierigkeit der Killer-KI (Solo und Team gegen die KI): Leicht · Normal · Schwer */
+const diffIdx = () => save.diff == null ? 1 : clamp(save.diff | 0, 0, 2);
+function diffUI() { $('#diffBtn').innerHTML = 'Killer-KI: <b>' + DIFFS[diffIdx()].name + '</b>'; }
+$('#diffBtn').addEventListener('click', () => { save.diff = (diffIdx() + 1) % 3; persist(); diffUI(); });
+/* Vollbild (wo der Browser es kann) */
+const fsEl = document.documentElement, fsOn = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+if (fsEl.requestFullscreen || fsEl.webkitRequestFullscreen) {
+  $('#fsT').hidden = false;
+  $('#fsT').addEventListener('click', () => {
+    try {
+      if (fsOn()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      else { const p = (fsEl.requestFullscreen || fsEl.webkitRequestFullscreen).call(fsEl); if (p && p.catch) p.catch(() => {}); }
+    } catch (e) {}
+  });
 }
 
 /* ================= Start ================= */
@@ -143,7 +168,7 @@ requestAnimationFrame(frame);
 
 window.__ns = {
   get S() { return S; }, get K() { return K; }, get SV() { return SV; }, get mode() { return MODE; }, get map() { return MAPID; },
-  MAPS, loadMap, useMap, startTeam, taskPoints, Net, Lobby, Bots, Sync, get netPaused() { return netPaused; }, get T() { return T; }, get endgame() { return endgame; }, stats, get need() { return NEED; }, get Q() { return Q; }, get state() { return state; }, get act() { return actNow; },
+  MAPS, loadMap, useMap, startTeam, taskPoints, get role() { return ROLE; }, kDo, kInstinct, kActions, kStart, CFG, Net, Lobby, Bots, Sync, get netPaused() { return netPaused; }, get T() { return T; }, get endgame() { return endgame; }, stats, get need() { return NEED; }, get Q() { return Q; }, get state() { return state; }, get act() { return actNow; },
   tasks, pallets, windows, lockers, hooks, gates, findPath, ch, startGame, caught, stains, killerVisible, killerSees,
   tp(x, y) { S.x = x; S.y = y; }, ktp(x, y) { K.x = x; K.y = y; K.path = null; K.goal = null; K.act = null; },
   finish(n = tasks.length) { tasks.slice(0, n).forEach(t => { if (!t.done) complete(t); }); },

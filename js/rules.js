@@ -28,8 +28,9 @@
    Felder am Killer: carry, hookGoal, carryT, campUntil/campRoom (kein Camping), hunt {sv, t, last} (40-s-Regel),
      ignore {sv, until}. Zusätzliche K.mode: 'fetch' (geht zum Liegenden), 'carry' (trägt zum Haken). */
 
-let deaths = [], teamEndAt = 0, teamRoster = null, endLock = false;
-function teamReset() { deaths = []; teamEndAt = 0; endLock = false; specShown = ''; }
+let deaths = [], teamEndAt = 0, teamRoster = null, teamOpt = null, endLock = false;
+let collapseAt = 0;   // Endspiel: Zeitpunkt, an dem es alle holt, die noch drin sind (0 = läuft nicht)
+function teamReset() { deaths = []; teamEndAt = 0; endLock = false; specShown = ''; collapseAt = 0; }
 
 /* ================= Abfragen ================= */
 const isFree = sv => inPlay(sv) && sv.hp > 0 && !sv.carried && !sv.hung;
@@ -57,20 +58,20 @@ function awareMul(sv, d) {
 function blood(x, y, z, n, sp = 2.5) { for (let i = 0; i < n; i++) parts.push({ x, y, z, vx: rand(-sp, sp), vy: rand(-1.5, 1.5), vz: rand(.5, 3), g: 9, life: rand(.5, 1), max: 1, col: '150,10,18', sz: .06, splat: 1 }); }
 function puff(x, y, z, n, col, up = 1) { for (let i = 0; i < n; i++) parts.push({ x: x + rand(-.3, .3), y: y + rand(-.15, .15), z: z + rand(0, .6), vx: rand(-.5, .5), vy: rand(-.3, .3), vz: rand(.4, 1.6) * up, g: -.4, life: rand(.6, 1.2), max: 1.2, col, sz: rand(.06, .12), fade: 1 }); }
 const FX = {
-  down(sv) { SFX.hit(); SFX.gasp(); blood(sv.x, sv.y, .6, 28); if (sv === S) { flash = .85; flashCol = '195,18,31'; shake(.6); slowT = .2; } else shake(.15); },
+  down(sv) { SFX.hit(); SFX.gasp(); blood(sv.x, sv.y, .6, 28); if (sv === S) { flash = .85; flashCol = '195,18,31'; shake(.6); slowT = .2; buzz(160); } else shake(.15); },
   pick(sv) { SFX.gasp(); SFX.kick(); if (sv === S) shake(.35); },
   hook(sv, h) { SFX.clang(); SFX.scream(); blood(h.cx + .3, h.cy + .1, 1.3, 26, 2); if (sv === S) { shake(.8); flash = .8; flashCol = '195,18,31'; } else shake(.2); },
   stage(sv, h) { SFX.scream(); blood(h.cx + .3, h.cy + .1, 1.2, 12, 1.5); if (sv === S) { shake(.4); flash = .45; flashCol = '195,18,31'; } },
   unhook(sv, h) { SFX.clang(); SFX.gasp(); blood(h.cx + .3, h.cy + .1, 1.1, 12, 1.5); if (sv === S) shake(.35); },
   heal(sv) { SFX.great(); SFX.chirp(); for (let i = 0; i < 18; i++) parts.push({ x: sv.x + rand(-.3, .3), y: sv.y + rand(-.1, .1), z: rand(.2, 1.2), vx: rand(-.3, .3), vy: rand(-.2, .2), vz: rand(.6, 1.6), g: -.2, life: rand(.6, 1.1), max: 1.1, col: '125,255,160', sz: .05, fade: 1 }); },
-  free(sv, why) { SFX.gasp(); if (why === 'wiggle') SFX.stun(); if (sv === S) shake(.45); },
+  free(sv, why) { SFX.gasp(); if (why === 'wiggle') SFX.stun(); if (sv === S) shake(.45); if (ROLE === 'killer') { shake(.5); flash = .4; flashCol = '235,231,220'; buzz(80); toast(sv.name + ' hat sich losgerissen!'); } },
   death(sv, d) { SFX.scream(); SFX.hit(); blood(d.x, d.y, d.how === 'hook' ? 1.3 : .4, 34, 2.5); if (sv === S) { flash = 1; flashCol = '195,18,31'; shake(.7); slowT = .3; } else shake(.25); },
   vanish(sv, d) { puff(d.how === 'hook' ? d.h.cx + .3 : d.x, d.how === 'hook' ? d.h.cy + .3 : d.y, d.how === 'hook' ? .8 : .1, 26, '20,14,16'); },
   escape(sv) { if (sv === S) SFX.win(); else SFX.chirp(); },
   fail(sv, o) {
     if (o.kind === 'heal') { SFX.gasp(); SFX.bang(); } else SFX.spark();
     for (let i = 0; i < 24; i++) parts.push({ x: o.x, y: o.y, z: .5, vx: rand(-3, 3), vy: rand(-2, 2), vz: rand(1, 4), g: 9, life: rand(.3, .8), max: .8, col: o.kind === 'heal' ? '150,10,18' : '255,200,90', sz: .05 });
-    if (sv === S) { shake(.4); S.flinch = .45; flash = .35; flashCol = '255,120,40'; eyeT = T; }
+    if (sv === S) { shake(.4); S.flinch = .45; flash = .35; flashCol = '255,120,40'; eyeT = T; buzz(60); }
   },
 };
 function fx(kind, sv, o) { const f = FX[kind]; if (f) f(sv, o); }
@@ -83,7 +84,7 @@ function downSurv(sv) {
   if (!inPlay(sv) || sv.hp <= 0 || sv.carried || sv.hung) return;
   clearInteract(sv); leaveLocker(sv);
   if (sv.act && sv.act.kind !== 'vault') { sv.act = null; sv.z = 0; resolve(sv); }
-  sv.hp = 0; sv.healProg = 0; sv.burst = 0; sv.running = false; sv.flinch = .4;
+  sv.hp = 0; sv.healProg = 0; sv.burst = 0; sv.running = false; sv.flinch = .4; K.downs++;
   K.act = { kind: 'wipe', t: 0, dur: CFG.wipe }; K.mode = 'fetch'; K.target = null; K.path = null; K.goal = null;
   K.aware = 0; K.blood = 0; K.chaseT = 0; K.hunt.t = 0; K.seenT = T; K.lastSeen = { x: sv.x, y: sv.y };
   fx('down', sv);
@@ -121,7 +122,7 @@ function placeBeside(sv) {
 /* Aufhängen: 1. Mal ab 0, 2. Mal ab mindestens 0,5 (Kampfphase), 3. Mal sofort tot */
 function hookSurv(sv, h) {
   if (K.carry === sv) { K.carry = null; K.hookGoal = null; }
-  sv.carried = false; sv.hookN++; sv.hung = h; sv.unhookProg = 0; sv.wiggle = 0; sv.moving = sv.running = false;
+  sv.carried = false; sv.hookN++; sv.hung = h; K.hooksN++; sv.unhookProg = 0; sv.wiggle = 0; sv.moving = sv.running = false;
   sv.x = h.front.x; sv.y = h.front.y; sv.mask = mask[I(sv.x | 0, sv.y | 0)] || sv.mask;
   // Kein Camping: mindestens CFG.antiCamp s in anderen Räumen suchen
   K.campUntil = T + CFG.antiCamp; K.campRoom = roomAt(h.front.x, h.front.y); K.mode = 'patrol'; K.goal = null; K.path = null; K.aware = 0; K.target = null;
@@ -373,7 +374,9 @@ function teamStep(dt) {
   for (const sv of SV) {
     if (sv.hung && !sv.out) {
       const was = sv.hookProg;
-      sv.hookProg = Math.min(1, sv.hookProg + dt / (2 * CFG.hookStage));
+      // Gespielter Killer: lauert er am Haken (ohne Jagd), läuft die Zeit dort deutlich langsamer
+      sv.camped = !!K.human && !K.carry && K.mode !== 'chase' && hyp(K.x - sv.hung.front.x, K.y - sv.hung.front.y) < CFG.campR;
+      sv.hookProg = Math.min(1, sv.hookProg + dt / (2 * CFG.hookStage) * (sv.camped ? CFG.campSlow : 1));
       if (was < .5 && sv.hookProg >= .5) fx('stage', sv, sv.hung);
       if (T - sv.unhookT > .12) sv.unhookProg = 0;          // niemand rettet gerade
       if (sv.hookProg >= 1) killSurv(sv, 'hook');
@@ -389,6 +392,8 @@ function teamStep(dt) {
     t.prog = Math.min(1, t.prog + dt / CFG.duoTime);
     if (t.prog >= 1) complete(t, SV.find(v => v.work === t) || S);
   }
+  // Endspiel abgelaufen: wer jetzt noch drin ist, den holen die Klauen
+  if (collapseAt && T >= collapseAt) { collapseAt = 0; endLock = true; for (const v of SV) if (inPlay(v)) killSurv(v, v.hung ? 'hook' : 'collapse'); endLock = false; }
   // Tote verschwinden nach den Klauen
   for (const d of deaths) if (!d.gone && T - d.t0 > 2.4) { d.gone = true; if (d.sv.hung === d.h) d.sv.hung = null; fx('vanish', d.sv, d); }
   teamCheckEnd();
@@ -427,6 +432,7 @@ function portraitURL(skin, size) {
 }
 function showTeamEnd() {
   if (state === 'end') return;
+  if (ROLE === 'killer') { showKillerEnd(); return; }
   teamEndAt = 0; stats.end = T;
   const won = S.out === 'escaped';
   if (won) { save.wins++; persist(); }
@@ -441,7 +447,7 @@ function showTeamEnd() {
   $('#teamRes').hidden = false; $('#specBar').hidden = true; specShown = '';
 }
 /* Nochmal ohne Lobby (z. B. per Test-API gestartet): Team-Runde mit derselben Aufstellung. Knöpfe: js/main.js → Lobby.again */
-function teamRestart() { startTeam(MAPID, teamRoster); }
+function teamRestart() { startTeam(MAPID, teamRoster, undefined, teamOpt); }
 $('#specEnd').addEventListener('click', () => teamGiveUp());
 $('#specNext').addEventListener('click', specNext);
 

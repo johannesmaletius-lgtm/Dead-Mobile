@@ -7,6 +7,8 @@
 //   c) offline „Mit Bots spielen": 1 lokaler + 2 Bots
 //   d) Synchronisierung im Spiel (Netz Teil 2): Bewegung, Aufgaben, Palette, Treffer/Haken/Retten/Heilen, Pause,
 //      Hintergrund-Tab, Mitspieler geht (Bot übernimmt), Spielende – über BroadcastChannel und (mit --peer) PeerJS
+//   e) Gespielter Killer online: Killer-Wahl in der Lobby, Client als Killer (Laufen, Treffer, Aufheben, Haken, Palette,
+//      Instinkt, Verlassen → KI) und Host als Killer
 //   --shots: Bildschirmfotos der Lobby (900×450, deviceScaleFactor 2). --fonts: Ordner mit fonts.css + *.woff2 (sonst ohne Webfonts).
 const { chromium } = require('playwright');
 const fs = require('fs'), path = require('path'), { spawn } = require('child_process'), http = require('http');
@@ -14,7 +16,7 @@ const fs = require('fs'), path = require('path'), { spawn } = require('child_pro
 const args = process.argv.slice(2), opt = {};
 for (let i = 0; i < args.length; i++) if (args[i].startsWith('--')) opt[args[i].slice(2)] = args[++i]; else opt.file = args[i];
 const FILE = path.resolve(opt.file || 'index.html'), URL0 = 'file://' + FILE;
-const PORT = +(opt.port || 9000), SHOTS = opt.shots, FONTS = opt.fonts, ONLY = (opt.only || 'a,b,c,d').split(',');
+const PORT = +(opt.port || 9000), SHOTS = opt.shots, FONTS = opt.fonts, ONLY = (opt.only || 'a,b,c,d,e').split(',');
 const PEERDIR = opt.peer || process.env.PEER_DEPS;
 const CDN1 = /unpkg\.com\/peerjs/, CDN2 = /cdn\.jsdelivr\.net\/npm\/peerjs/;
 
@@ -103,7 +105,7 @@ async function lobbyFlow(browser, label, query, extra) {
   ok(await visible(C2, '#room'), 'Cleo ist beigetreten');
   ok(await waitSlots(H, 'Anna*|Ben|Cleo'), 'Host-Liste zeigt 3 Spieler');
   ok(await waitSlots(C1, 'Anna|Ben*|Cleo'), 'Ben sieht 3 Spieler, sich selbst markiert');
-  ok((await text(H, '#rCount')).trim() === '3 / 3', 'Zähler 3 / 3');
+  ok((await text(H, '#rCount')).trim() === '3 / 4', 'Zähler 3 / 4');
   ok(await visible(H, '#rStart') && !(await visible(C1, '#rStart')) && await visible(C1, '#rWait'), 'Nur der Host hat „Starten", Clients warten');
   // Standardkarte = erste Team-Karte (Ferienlager, falls vorhanden); der Client sieht sie mit Namen
   let wantMap = await H.evaluate(() => window.__ns.Lobby.roomMap);
@@ -127,12 +129,22 @@ async function lobbyFlow(browser, label, query, extra) {
     await J.close();
   }
 
-  // Raum voll
+  // Vierter Spieler: geht nur mit einem Killer-Spieler; fünfter: Raum voll
   const D = await open(ctx, query, errs, 'Dora');
   await join(D, 'Dora', 'cop', code);
-  ok(/voll/.test(await errMsg(D)), 'Vierter Spieler: „' + (await text(D, '#tMsg')) + '"');
-  if (extra && extra.shots) await shot(D, '5-fehler-voll');
-  await D.close();
+  ok(await visible(D, '#room') && (await text(H, '#rCount')).trim() === '4 / 4', 'Vierter Spieler ist drin (4 / 4)');
+  ok(await H.evaluate(() => document.querySelector('#rStart').disabled) && /Killer/.test(await text(H, '#rHint')), 'Zu viert ohne Killer-Spieler: Start gesperrt – „' + (await text(H, '#rHint')) + '"');
+  for (let i = 0; i < 4; i++) await H.click('#rKiller .arr:last-child');   // KI → Anna → Ben → Cleo → Dora
+  await D.waitForFunction(() => /Dora/.test(document.querySelector('#rKiller').textContent), null, { timeout: 5000 }).catch(() => {});
+  ok(/Dora/.test(await text(H, '#rKiller')) && /Dora \(du\)/.test(await text(D, '#rKiller')) && !(await H.evaluate(() => document.querySelector('#rStart').disabled)), 'Host wählt Dora als Killer: alle sehen es, Start frei');
+  ok(await waitSlots(H, 'Anna*|Ben|Cleo'), 'Die drei Plätze der Überlebenden: Anna, Ben, Cleo');
+  if (extra && extra.shots) await shot(H, '5-killer-wahl');
+  const X5 = await open(ctx, query, errs, 'Emil');
+  await join(X5, 'Emil', 'cop', code);
+  ok(/voll/.test(await errMsg(X5)), 'Fünfter Spieler: „' + (await text(X5, '#tMsg')) + '"');
+  await X5.close(); await D.close();
+  await H.waitForFunction(() => document.querySelector('#rCount').textContent.trim() === '3 / 4', null, { timeout: 8000 }).catch(() => {});
+  ok(/KI/.test(await text(H, '#rKiller')), 'Dora geht: Killer wieder KI');
 
   // Verlassen und wiederkommen: Liste aktualisiert sich
   await C2.click('#roomBack');
@@ -349,6 +361,107 @@ async function syncFlow(browser, label, query) {
   await ctx.close();
 }
 
+/* ---------- e) Gespielter Killer online ---------- */
+async function killerFlow(browser, label, query) {
+  console.log(`\n${label}`);
+  const errs = [], ctx = await newCtx(browser);
+  const wait = (p, fn, arg, ms = 6000) => p.waitForFunction(fn, arg, { timeout: ms }).then(() => true, () => false);
+  const ev = (p, fn, arg) => p.evaluate(fn, arg);
+  const H = await open(ctx, query, errs, 'Host'), C1 = await open(ctx, query, errs, 'Ben'), C2 = await open(ctx, query, errs, 'Cleo');
+  const code = await host(H, 'Anna', 'medic');
+  await join(C1, 'Ben', 'janitor', code); await join(C2, 'Cleo', 'cop', code);
+  await waitSlots(H, 'Anna*|Ben|Cleo');
+  // ---- 1) Ein Client (Ben) ist der Killer ----
+  await H.click('#rKiller .arr:last-child'); await H.click('#rKiller .arr:last-child');
+  ok(await waitSlots(H, 'Anna*|Cleo|bot:Bot') && await waitSlots(C1, 'Anna|Cleo|bot:Bot'), 'Ben ist Killer: Überlebende sind Anna, Cleo und ein Bot');
+  await shot(H, 'e1-lobby-killer');
+  await ev(H, () => { window.__ns.Bots.on = false; });   // der Bot steht still (die Szenen stellen alles selbst)
+  await H.click('#rStart');
+  for (const p of [H, C1, C2]) await wait(p, () => window.__ns.state === 'play', null, 10000);
+  ok(await ev(C1, () => ROLE === 'killer' && K.human === 'local' && SV.length === 3 && !SV.includes(S)) && await ev(H, () => ROLE === 'surv' && K.human === 'remote' && !!K.rnet && S.kind === 'local')
+    && await ev(C2, () => ROLE === 'surv' && K.human === 'remote' && S.name === 'Cleo'), 'Rollen: Ben spielt den Killer, Anna (Host) und Cleo Überlebende');
+  ok(await ev(C2, () => /Ben ist der Killer/.test(toastMsg || '')), 'Cleo liest: „Ben ist der Killer"');
+  const kd = async p => { const a = await ev(C1, () => [K.x, K.y]), b = await ev(p, () => [K.x, K.y]); return Math.hypot(a[0] - b[0], a[1] - b[1]); };
+  const k0 = await ev(C1, () => [K.x, K.y]);
+  await C1.keyboard.down('KeyD'); await sleep(350); const mov = await ev(H, () => K.moving); await sleep(350); await C1.keyboard.up('KeyD'); await sleep(500);
+  const k1 = await ev(C1, () => [K.x, K.y]);
+  ok(Math.hypot(k1[0] - k0[0], k1[1] - k0[1]) > 1 && await kd(H) < .2 && await kd(C2) < .25 && mov, `Ben läuft als Killer: Host und Cleo sehen ihn an derselben Stelle (Abstand ${(await kd(H)).toFixed(2)} / ${(await kd(C2)).toFixed(2)})`);
+  // Treffer: Ben stellt sich neben Anna und schlägt zu
+  const place = async (dx = 1.5) => { const a = await ev(H, () => [S.x, S.y]); await ev(C1, ([x, y, dx]) => { const n = window.__ns; n.ktp(x + dx, y); K.dir = Math.PI; }, [a[0], a[1], dx]); await sleep(350); };
+  await ev(H, () => { const n = window.__ns; n.tp(30.5, 12.5); }); await sleep(250);
+  await place(); await C1.keyboard.press('Space');
+  ok(await wait(H, () => S.hp === 1) && await wait(C1, () => SV.find(v => v.name === 'Anna').hp === 1 && K.act && K.act.kind === 'wipe' && K.hits === 1) && await wait(C2, () => SV.find(v => v.name === 'Anna').hp === 1), 'Ben trifft Anna: verletzt bei allen, Ben wischt die Klinge ab');
+  ok(await wait(H, () => K.mode === 'chase' && K.target === S, null, 4000) || await ev(H, () => K.act && K.act.kind === 'wipe'), 'Der Host sieht die Aktion des Killers (wipe) bzw. die Jagd');
+  await wait(C1, () => !K.act, null, 5000);
+  await ev(H, () => { S.burst = 0; }); await place(1.4); await C1.keyboard.press('Space');
+  ok(await wait(H, () => S.hp === 0 && !S.carried) && await wait(C1, () => K.downs === 1), 'Zweiter Treffer: Anna am Boden');
+  await wait(C1, () => !K.act, null, 5000); await place(.7);
+  ok(await wait(C1, () => { const a = kActions().alt; return a && a.kind === 'pick'; }), 'Ben bekommt die Aktion „Aufheben"');
+  await C1.keyboard.press('KeyE');
+  ok(await wait(H, () => S.carried && K.carry === S) && await wait(C1, () => K.carry && K.carry.name === 'Anna') && await wait(C2, () => SV.find(v => v.name === 'Anna').carried), 'Ben hebt Anna auf: getragen bei allen');
+  // Palette auf den Kopf (Cleo): Ben ist betäubt und lässt Anna fallen
+  await ev(C1, () => { const n = window.__ns, p = pallets[0]; n.ktp(p.cx - p.ax.x * .2, p.cy - p.ax.y * .2); });
+  await ev(C2, () => { const n = window.__ns, p = pallets[0]; n.tp(p.cx + p.ax.x * .8, p.cy + p.ax.y * .8); });
+  await sleep(450); await C2.keyboard.press('KeyE');
+  ok(await wait(C1, () => K.act && K.act.kind === 'stun' && !K.carry) && await wait(H, () => !S.carried && S.hp === 1 && K.act && K.act.kind === 'stun'), 'Cleo wirft die Palette: Ben betäubt, Anna frei');
+  const sx = await ev(C1, () => K.x); await C1.keyboard.down('KeyA'); await sleep(400); await C1.keyboard.up('KeyA');
+  ok(Math.abs(await ev(C1, () => K.x) - sx) < .05 && await ev(C1, () => window.__ns.stats.stuns === 1) && await kd(H) < .3, 'Betäubt kann Ben nicht laufen; Position stimmt mit dem Host überein');
+  await wait(C1, () => !K.act, null, 5000);
+  // Palette zerbrechen
+  await ev(C1, () => { const n = window.__ns, p = pallets[0]; n.ktp(p.cx - p.ax.x * .95, p.cy - p.ax.y * .95); }); await sleep(300);
+  await C1.keyboard.press('KeyE');
+  ok(await wait(H, () => pallets[0].state === 2, null, 5000) && await wait(C2, () => pallets[0].state === 2), 'Ben zerbricht die Palette: bei allen kaputt');
+  // Haken: Anna noch einmal zu Boden, aufheben, aufhängen
+  await ev(H, () => { const n = window.__ns; n.tp(hooks[0].front.x + 2.5, hooks[0].front.y); S.burst = 0; }); await sleep(300);
+  await wait(C1, () => !K.act, null, 4000); await place(1.4); await C1.keyboard.press('Space');
+  await wait(H, () => S.hp === 0); await wait(C1, () => !K.act, null, 5000); await place(.6); await C1.keyboard.press('KeyE');
+  await wait(C1, () => !!K.carry);
+  await ev(C1, () => { const n = window.__ns, h = hooks[0]; n.ktp(h.front.x + .5, h.front.y); }); await sleep(300);
+  ok(await wait(C1, () => { const m = kActions().main; return m && m.kind === 'hook'; }), 'Am Haken bekommt Ben „Aufhängen"');
+  await C1.keyboard.press('Space');
+  ok(await wait(H, () => !!S.hung && S.hookN === 1) && await wait(C1, () => K.hooksN === 1 && !K.carry) && await wait(C2, () => !!SV.find(v => v.name === 'Anna').hung), 'Ben hängt Anna auf: am Haken bei allen');
+  await shot(C1, 'e2-killer-client');
+  // Lauern bremst, die Hängende erfährt es
+  ok(await wait(H, () => S.camped === true, null, 3000), 'Ben lauert am Haken: Anna sieht den Hinweis (Zeit läuft langsamer)');
+  // Instinkt: Cleo steht in der Nähe und wird gewarnt
+  const kp = await ev(C1, () => [K.x, K.y]);
+  await ev(C2, ([x, y]) => { window.__ns.tp(x + 4, y); }, kp); await sleep(400);
+  await C1.keyboard.press('KeyQ');
+  ok(await wait(C1, () => K.inst && K.inst.some(r => r.sv.name === 'Cleo') && K.instCd > 20) && await wait(C2, () => /spürt/.test(toastMsg || '')), 'Instinkt: Ben sieht Cleo, Cleo wird gewarnt');
+  // Ben geht: die KI übernimmt
+  await C1.keyboard.press('Escape'); await C1.click('#leaveP');
+  ok(await wait(H, () => !K.human && !K.rnet, null, 8000) && await ev(H, () => /KI übernimmt/.test(toastMsg || '')), 'Ben verlässt das Spiel: beim Host übernimmt die KI');
+  await sleep(600);
+  ok(await ev(H, () => { const x = K.x; window.__ns.K.ctl = null; return window.__ns.state === 'play'; }) && await wait(H, () => K.moving || K.act, null, 6000), 'Die KI bewegt den Killer wieder');
+  await C1.close();
+  // ---- 2) Der Host ist der Killer ----
+  await ev(H, () => { window.__ns.K.ctl = () => {}; for (const v of SV) if (!v.out) killSurv(v, 'hook'); });
+  await wait(H, () => window.__ns.state === 'end', null, 9000);
+  await H.click('#again'); await wait(H, () => !document.querySelector('#room').hidden); await wait(C2, () => !document.querySelector('#room').hidden);
+  await H.click('#rKiller .arr:last-child');
+  ok(await wait(C2, () => /Anna/.test(document.querySelector('#rKiller').textContent)), 'Zweite Runde: Anna (Host) ist der Killer');
+  await H.click('#rStart');
+  for (const p of [H, C2]) await wait(p, () => window.__ns.state === 'play', null, 10000);
+  ok(await ev(H, () => ROLE === 'killer' && K.human === 'local' && Sync.host && SV.filter(v => v.kind === 'bot').length === 2) && await ev(C2, () => ROLE === 'surv' && S.name === 'Cleo' && K.human === 'remote'), 'Host spielt den Killer, Cleo und zwei Bots überleben');
+  await ev(H, () => { for (const v of SV) if (v.bot) { v.ctl = null; v.bot = null; } });
+  await H.keyboard.down('KeyS'); await sleep(500); await H.keyboard.up('KeyS'); await sleep(400);
+  const hk = await ev(H, () => [K.x, K.y]), ck = await ev(C2, () => [K.x, K.y]);
+  ok(Math.hypot(hk[0] - ck[0], hk[1] - ck[1]) < .2, 'Der Host läuft als Killer: Cleo sieht ihn an derselben Stelle');
+  const cp = await ev(C2, () => [S.x, S.y]);
+  await ev(H, ([x, y]) => { const n = window.__ns; n.ktp(x + 1.5, y); K.dir = Math.PI; }, cp); await sleep(300);
+  await H.keyboard.press('Space');
+  ok(await wait(C2, () => S.hp === 1) && await ev(H, () => K.hits === 1), 'Der Host trifft Cleo: verletzt bei ihr');
+  await H.keyboard.press('KeyQ');
+  ok(await wait(C2, () => /spürt/.test(toastMsg || '')), 'Instinkt des Hosts: Cleo wird gewarnt');
+  await shot(H, 'e3-killer-host');
+  await ev(H, () => { for (const v of SV) if (!v.out) killSurv(v, 'hook'); });
+  ok(await wait(H, () => window.__ns.state === 'end', null, 9000) && await wait(C2, () => window.__ns.state === 'end', null, 9000), 'Spielende bei beiden');
+  ok(await ev(H, () => document.querySelector('#endWord').textContent === 'Massacre') && await ev(C2, () => document.querySelector('#endWord').textContent === 'Sacrificed'), 'Host: „Massacre", Cleo: „Sacrificed"');
+  await shot(H, 'e4-killer-ende');
+  ok(!errs.length, 'Keine Fehler in der Konsole' + (errs.length ? ': ' + errs.join(' | ') : ''));
+  await ctx.close();
+}
+
 /* ---------- Signalserver ---------- */
 function startServer() {
   const bin = path.join(PEERDIR, 'node_modules/.bin/peerjs');
@@ -379,6 +492,10 @@ function startServer() {
     if (ONLY.includes('d')) {
       await syncFlow(browser, 'd) Synchronisierung im Spiel (BroadcastChannel)', '?net=local#test');
       if (PEERDIR) { if (!srv) srv = await startServer(); await syncFlow(browser, 'd) Synchronisierung im Spiel (PeerJS)', `?peer=localhost:${PORT}#test`); }
+    }
+    if (ONLY.includes('e')) {
+      await killerFlow(browser, 'e) Gespielter Killer online (BroadcastChannel)', '?net=local#test');
+      if (PEERDIR) { if (!srv) srv = await startServer(); await killerFlow(browser, 'e) Gespielter Killer online (PeerJS)', `?peer=localhost:${PORT}#test`); }
     }
   } catch (e) { fails++; console.log('  ✗ Abbruch: ' + (e && e.stack || e)); }
   if (srv) srv.kill();
